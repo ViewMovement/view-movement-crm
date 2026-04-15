@@ -1,0 +1,76 @@
+// Shared client/timer/touchpoint operations used by routes and jobs.
+import { supabase } from './supabase.js';
+import { computeNextDue } from './cadence.js';
+
+export async function createClient(fields) {
+  const { data: client, error } = await supabase
+    .from('clients')
+    .insert([fields])
+    .select()
+    .single();
+  if (error) throw error;
+
+  const now = new Date();
+  const nextDue = computeNextDue(now, client.status);
+
+  const { error: tErr } = await supabase.from('timers').insert([
+    { client_id: client.id, timer_type: 'loom',       last_reset_at: now.toISOString(), next_due_at: nextDue.toISOString() },
+    { client_id: client.id, timer_type: 'call_offer', last_reset_at: now.toISOString(), next_due_at: nextDue.toISOString() }
+  ]);
+  if (tErr) throw tErr;
+
+  await supabase.from('touchpoints').insert([{
+    client_id: client.id,
+    type: 'system',
+    content: 'Client record created'
+  }]);
+
+  return client;
+}
+
+export async function logTouchpoint(clientId, type, content = null) {
+  const { error } = await supabase
+    .from('touchpoints')
+    .insert([{ client_id: clientId, type, content }]);
+  if (error) throw error;
+}
+
+export async function resetTimer(clientId, timerType) {
+  const { data: client, error: cErr } = await supabase
+    .from('clients').select('status').eq('id', clientId).single();
+  if (cErr) throw cErr;
+
+  const now = new Date();
+  const nextDue = computeNextDue(now, client.status);
+  const { error } = await supabase
+    .from('timers')
+    .update({
+      last_reset_at: now.toISOString(),
+      next_due_at: nextDue.toISOString(),
+      is_overdue: false
+    })
+    .eq('client_id', clientId)
+    .eq('timer_type', timerType);
+  if (error) throw error;
+}
+
+// When a client's status changes, recalc both timers' next_due_at from last_reset_at using new interval.
+export async function recalcTimersForStatusChange(clientId, newStatus) {
+  const { data: timers, error } = await supabase
+    .from('timers').select('*').eq('client_id', clientId);
+  if (error) throw error;
+  const updates = timers.map(t => {
+    const nextDue = computeNextDue(t.last_reset_at, newStatus);
+    return supabase.from('timers').update({
+      next_due_at: nextDue.toISOString(),
+      is_overdue: new Date(nextDue) <= new Date()
+    }).eq('id', t.id);
+  });
+  await Promise.all(updates);
+}
+
+export async function refreshOverdueFlags() {
+  const nowIso = new Date().toISOString();
+  await supabase.from('timers').update({ is_overdue: true }).lte('next_due_at', nowIso);
+  await supabase.from('timers').update({ is_overdue: false }).gt('next_due_at', nowIso);
+}
