@@ -63,15 +63,23 @@ async function upsertClient(c) {
   return client;
 }
 
-async function main() {
-  console.log(`Seeding ${EXISTING_CLIENTS.length} existing clients...`);
+export async function runSeed() {
   let ok = 0, fail = 0;
+  const failures = [];
   for (const c of EXISTING_CLIENTS) {
     try { await upsertClient(c); ok++; }
-    catch (e) { console.error(`FAIL ${c.name}:`, e.message); fail++; }
+    catch (e) { console.error(`FAIL ${c.name}:`, e.message); fail++; failures.push({ name: c.name, error: e.message }); }
   }
-  console.log(`Done. ok=${ok} fail=${fail}`);
-  process.exit(fail ? 1 : 0);
+  return { total: EXISTING_CLIENTS.length, ok, fail, failures };
 }
 
-main();
+async function main() {
+  console.log(`Seeding ${EXISTING_CLIENTS.length} existing clients...`);
+  const r = await runSeed();
+  console.log(`Done. ok=${r.ok} fail=${r.fail}`);
+  process.exit(r.fail ? 1 : 0);
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main();
+}

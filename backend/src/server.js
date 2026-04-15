@@ -15,6 +15,22 @@ app.use(morgan('tiny'));
 
 app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
+// One-shot seed endpoint guarded by SEED_TOKEN env var.
+app.post('/admin/seed-existing', async (req, res) => {
+  try {
+    const token = req.header('x-seed-token');
+    if (!process.env.SEED_TOKEN || token !== process.env.SEED_TOKEN) {
+      return res.status(401).json({ error: 'unauthorized' });
+    }
+    const { runSeed } = await import('./seed/seedExistingClients.js');
+    const result = await runSeed();
+    res.json({ ok: true, result });
+  } catch (e) {
+    console.error('[seed]', e);
+    res.status(500).json({ error: String(e && e.message || e) });
+  }
+});
+
 app.use('/api/clients', requireAuth, clientsRouter);
 
 const port = process.env.PORT || 8080;
