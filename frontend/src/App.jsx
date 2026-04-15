@@ -1,25 +1,49 @@
-import { Link, Outlet } from 'react-router-dom';
-import { useAuth } from './lib/auth.jsx';
+import { useEffect, useState } from 'react';
+import { Outlet, useNavigate } from 'react-router-dom';
+import Sidebar from './components/Sidebar.jsx';
+import CommandPalette from './components/CommandPalette.jsx';
+import SyncIndicator from './components/SyncIndicator.jsx';
 
 export default function App() {
-  const { user, signOut } = useAuth();
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const nav = useNavigate();
+
+  useEffect(() => {
+    function onKey(e) {
+      const tag = (e.target.tagName || '').toLowerCase();
+      const typing = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault(); setPaletteOpen(p => !p); return;
+      }
+      if (typing) return;
+      if (e.key === '/') { e.preventDefault(); setPaletteOpen(true); return; }
+      if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey) nav('/');
+      if (e.key.toLowerCase() === 'c' && !e.metaKey && !e.ctrlKey) nav('/clients');
+      if (e.key.toLowerCase() === 'p' && !e.metaKey && !e.ctrlKey) nav('/pipeline');
+      if (e.key.toLowerCase() === 'a' && !e.metaKey && !e.ctrlKey) nav('/activity');
+      if (e.key.toLowerCase() === 'g' && !e.metaKey && !e.ctrlKey) nav('/digest');
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [nav]);
+
   return (
-    <div className="min-h-screen flex flex-col">
-      <header className="border-b border-ink-800 bg-ink-900/80 backdrop-blur sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-3">
-            <div className="h-7 w-7 rounded bg-emerald-500/90 grid place-items-center text-ink-950 font-bold">V</div>
-            <div className="font-semibold">View Movement · Client Success</div>
-          </Link>
-          <div className="flex items-center gap-3 text-sm text-slate-400">
-            <span>{user?.email}</span>
-            <button className="btn btn-subtle" onClick={signOut}>Sign out</button>
+    <div className="min-h-screen flex">
+      <Sidebar onOpenPalette={() => setPaletteOpen(true)} />
+      <div className="flex-1 flex flex-col min-w-0">
+        <header className="border-b border-ink-800 bg-ink-950/60 backdrop-blur sticky top-0 z-20">
+          <div className="h-14 px-6 flex items-center justify-between gap-4">
+            <div className="md:hidden font-semibold text-sm">View Movement</div>
+            <div className="ml-auto flex items-center gap-4">
+              <SyncIndicator />
+            </div>
           </div>
-        </div>
-      </header>
-      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
-        <Outlet />
-      </main>
+        </header>
+        <main className="flex-1 px-6 py-8 max-w-[1400px] w-full mx-auto">
+          <Outlet />
+        </main>
+      </div>
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </div>
   );
 }

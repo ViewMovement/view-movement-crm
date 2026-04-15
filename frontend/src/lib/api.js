@@ -21,7 +21,14 @@ export const api = {
   getClient:       (id)            => request(`/api/clients/${id}`),
   updateClient:    (id, patch)     => request(`/api/clients/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   action:          (id, type)      => request(`/api/clients/${id}/action`, { method: 'POST', body: JSON.stringify({ type }) }),
+  bulkAction:      (ids, type)     => request(`/api/clients/bulk-action`, { method: 'POST', body: JSON.stringify({ ids, type }) }),
+  undoLast:        (id)            => request(`/api/clients/${id}/undo-last`, { method: 'POST' }),
+  snooze:          (id, t, days)   => request(`/api/clients/${id}/timers/${t}/snooze`, { method: 'POST', body: JSON.stringify({ days }) }),
   addNote:         (id, content)   => request(`/api/clients/${id}/note`, { method: 'POST', body: JSON.stringify({ content }) }),
   resetTimer:      (id, t)         => request(`/api/clients/${id}/timers/${t}/reset`, { method: 'POST' }),
-  dismissOnboard:  (id)            => request(`/api/clients/${id}/dismiss-onboarding`, { method: 'POST' })
+  dismissOnboard:  (id)            => request(`/api/clients/${id}/dismiss-onboarding`, { method: 'POST' }),
+  activity:        (limit=200)     => request(`/api/activity?limit=${limit}`),
+  syncStatus:      ()              => request('/api/sync/status'),
+  runSync:         ()              => request('/api/sync/run', { method: 'POST' }),
+  weeklyDigest:    ()              => request('/api/clients/digest/weekly')
 };
