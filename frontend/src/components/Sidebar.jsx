@@ -71,6 +71,7 @@ export default function Sidebar({ onOpenPalette }) {
 
         <div className="h-3" />
         <SectionLabel>External</SectionLabel>
+        <NavItem item={{ to: '/slack-pulse', label: 'Slack Pulse', icon: '#' }} />
         <a href={MASTER_SHEET_URL} target="_blank" rel="noreferrer"
           className="flex items-center justify-between rounded-lg px-3 py-2 text-sm text-slate-300 hover:bg-ink-800 hover:text-white transition">
           <span className="flex items-center gap-3">

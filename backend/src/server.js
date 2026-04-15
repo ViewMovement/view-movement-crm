@@ -8,9 +8,11 @@ import activityRouter from './routes/activity.js';
 import syncRouter from './routes/sync.js';
 import opsRouter from './routes/ops.js';
 import exportRouter from './routes/export.js';
+import slackRouter from './routes/slack.js';
 import { requireAuth } from './lib/auth.js';
 import { startOnboardingPoller } from './jobs/onboardingSync.js';
 import { startCancellationPoller } from './jobs/cancellationSync.js';
+import { startSlackDigestJob } from './jobs/slackDigest.js';
 
 const app = express();
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN || true }));
@@ -40,6 +42,7 @@ app.use('/api/activity', requireAuth, activityRouter);
 app.use('/api/sync', requireAuth, syncRouter);
 app.use('/api/ops', requireAuth, opsRouter);
 app.use('/api/export', requireAuth, exportRouter);
+app.use('/api/slack', requireAuth, slackRouter);
 
 const port = process.env.PORT || 8080;
 app.listen(port, () => {
@@ -47,5 +50,6 @@ app.listen(port, () => {
   if (process.env.ENABLE_POLLERS !== 'false') {
     startOnboardingPoller();
     startCancellationPoller();
+    startSlackDigestJob();
   }
 });

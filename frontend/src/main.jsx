@@ -16,6 +16,7 @@ import Flags from './pages/Flags.jsx';
 import Reports from './pages/Reports.jsx';
 import SettingsPage from './pages/Settings.jsx';
 import NotFound from './pages/NotFound.jsx';
+import SlackPulse from './pages/SlackPulse.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import ClientProfile from './pages/ClientProfile.jsx';
 import { AuthProvider, RequireAuth } from './lib/auth.jsx';
@@ -49,6 +50,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route path="/digest" element={<Digest />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/slack-pulse" element={<SlackPulse />} />
               <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>

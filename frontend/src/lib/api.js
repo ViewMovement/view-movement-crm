@@ -57,5 +57,12 @@ export const api = {
   execDigest:      ()              => request('/api/ops/exec-digest'),
   // Settings
   getSettings:     ()              => request('/api/ops/settings'),
-  saveSettings:    (body)          => request('/api/ops/settings', { method: 'POST', body: JSON.stringify(body) })
+  saveSettings:    (body)          => request('/api/ops/settings', { method: 'POST', body: JSON.stringify(body) }),
+  // Slack Pulse
+  slackStatus:     ()              => request('/api/slack/status'),
+  slackPulse:      (seen='unseen') => request(`/api/slack/pulse?seen=${seen}`),
+  slackMarkSeen:   (id)            => request(`/api/slack/pulse/${id}/seen`, { method: 'POST', body: '{}' }),
+  slackSeenAll:    ()              => request(`/api/slack/pulse/seen-all`, { method: 'POST', body: '{}' }),
+  slackDigest:     ()              => request('/api/slack/digest'),
+  slackInactive:   ()              => request('/api/slack/channels/inactive')
 };
