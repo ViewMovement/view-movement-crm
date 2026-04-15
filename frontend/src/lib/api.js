@@ -32,6 +32,8 @@ export const api = {
   runSync:         ()              => request('/api/sync/run', { method: 'POST' }),
   weeklyDigest:    ()              => request('/api/clients/digest/weekly'),
   // Ops
+  day:             ()              => request('/api/ops/day'),
+  togglePhase:     (n)             => request(`/api/ops/day/phase/${n}/toggle`, { method: 'POST', body: JSON.stringify({}) }),
   triage:          ()              => request('/api/ops/triage'),
   onboardingSteps: ()              => request('/api/ops/onboarding-steps'),
   closeoutSteps:   ()              => request('/api/ops/closeout-steps'),

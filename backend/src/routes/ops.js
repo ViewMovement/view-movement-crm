@@ -282,6 +282,179 @@ router.post('/billing/check', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ---------- Day Flow: single-queue monkey-proof daily driver ----------
+// Returns a prioritized queue of work items, each with an explicit next_action,
+// plus progress counters, onboarding heroes, billing pulse, and routine phase state.
+router.get('/day', async (req, res) => {
+  try {
+    const userEmail = req.user?.email || 'anonymous';
+    const now = new Date();
+    const today = now.toISOString().slice(0, 10);
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+
+    const [{ data: clients }, { data: timers }, { data: flags }, { data: todaysTps }, { data: routineRows }] = await Promise.all([
+      supabase.from('clients').select('*').neq('status', 'churned'),
+      supabase.from('timers').select('*'),
+      supabase.from('situation_flags').select('*').is('resolved_at', null),
+      supabase.from('touchpoints').select('client_id,type,created_at').gte('created_at', startOfDay),
+      supabase.from('daily_routine').select('*').eq('user_email', userEmail).eq('routine_date', today).maybeSingle()
+    ]);
+
+    // Ensure routine row exists (defensive: tolerates missing table pre-migration)
+    let routine = routineRows;
+    if (!routine) {
+      try {
+        const { data } = await supabase.from('daily_routine').insert({ user_email: userEmail, routine_date: today }).select().single();
+        routine = data;
+      } catch { routine = null; }
+    }
+
+    const timersByClient = {};
+    for (const t of timers || []) (timersByClient[t.client_id] = timersByClient[t.client_id] || []).push(t);
+    const flagsByClient = {};
+    for (const f of flags || []) (flagsByClient[f.client_id] = flagsByClient[f.client_id] || []).push(f);
+
+    const CRITICAL_FLAGS = new Set(['failed_payment','missed_posting','non_responsive','overdue_batch']);
+
+    const queue = [];
+    const onboardingHeroes = [];
+
+    for (const c of clients || []) {
+      const cTimers = timersByClient[c.id] || [];
+      const cFlags = flagsByClient[c.id] || [];
+      const loomTimer = cTimers.find(t => t.timer_type === 'loom');
+      const callTimer = cTimers.find(t => t.timer_type === 'call_offer');
+
+      // Onboarding hero: cohort=new OR steps incomplete within first 14 days
+      if (c.cohort === 'new' || (c.created_at && (Date.now() - new Date(c.created_at).getTime()) < 14 * 86400000)) {
+        const steps = c.onboarding_steps || {};
+        const totalSteps = 7;
+        const completed = Object.keys(steps).length;
+        if (completed < totalSteps) {
+          onboardingHeroes.push({ client: c, completed, total: totalSteps });
+        }
+      }
+
+      // Pick the single most important next_action per client
+      let action = null;
+      let urgency = 0;
+
+      // 1. Critical flags → raise/work flag
+      const crit = cFlags.find(f => CRITICAL_FLAGS.has(f.type));
+      if (crit) {
+        const labels = {
+          failed_payment: `Resolve failed payment for ${c.name}`,
+          missed_posting: `Check posting status for ${c.name}`,
+          non_responsive: `Re-engage ${c.name} (non-responsive 48h+)`,
+          overdue_batch: `Unblock overdue batch for ${c.name}`
+        };
+        action = { type: 'flag', flag_id: crit.id, flag_type: crit.type, label: labels[crit.type], hint: 'Open playbook' };
+        urgency = 100;
+      }
+      // 2. Overdue loom timer
+      else if (loomTimer && new Date(loomTimer.next_due_at) <= now) {
+        const daysOver = Math.floor((now - new Date(loomTimer.next_due_at)) / 86400000);
+        action = { type: 'send_loom', label: `Send Loom to ${c.name}`, hint: daysOver > 0 ? `${daysOver}d overdue` : 'Due today' };
+        urgency = 60 + Math.min(20, daysOver);
+        if (c.status === 'red') urgency += 15;
+        if (c.cohort === 'cancelling') urgency += 10;
+      }
+      // 3. Overdue call offer
+      else if (callTimer && new Date(callTimer.next_due_at) <= now) {
+        const daysOver = Math.floor((now - new Date(callTimer.next_due_at)) / 86400000);
+        action = { type: 'call_offer', label: `Offer a call to ${c.name}`, hint: daysOver > 0 ? `${daysOver}d overdue` : 'Due today' };
+        urgency = 50 + Math.min(15, daysOver);
+      }
+      // 4. Due soon
+      else if (loomTimer && new Date(loomTimer.next_due_at) <= new Date(now.getTime() + 2 * 86400000)) {
+        const daysLeft = Math.ceil((new Date(loomTimer.next_due_at) - now) / 86400000);
+        action = { type: 'send_loom', label: `Send Loom to ${c.name}`, hint: `Due in ${daysLeft}d — get ahead` };
+        urgency = 30;
+      }
+
+      if (!action) continue;
+
+      // Did we already act on this today? (filter out completed items)
+      const todaysActions = (todaysTps || []).filter(t => t.client_id === c.id);
+      const actedLoomToday = todaysActions.some(t => t.type === 'loom_sent');
+      const actedCallToday = todaysActions.some(t => t.type === 'call_offered' || t.type === 'call_completed');
+      if (action.type === 'send_loom' && actedLoomToday) continue;
+      if (action.type === 'call_offer' && actedCallToday) continue;
+
+      queue.push({
+        id: `${c.id}:${action.type}`,
+        client: { id: c.id, name: c.name, status: c.status, cohort: c.cohort, company: c.company },
+        next_action: action,
+        urgency,
+        category: urgency >= 100 ? 'urgent' : (urgency >= 50 ? 'today' : 'heads_up'),
+        flags: cFlags.length
+      });
+    }
+
+    queue.sort((a, b) => b.urgency - a.urgency);
+
+    // Progress: count touchpoints today as "done" + phases completed
+    const doneToday = (todaysTps || []).filter(t => ['loom_sent','call_offered','call_completed'].includes(t.type)).length;
+    const totalPlanned = doneToday + queue.length;
+
+    // Billing pulse
+    const dom = now.getDate();
+    const isCheckDay = dom === 1 || dom === 14;
+    const relevantDay = dom > 14 ? 14 : 1;
+
+    res.json({
+      greeting: greetingFor(now),
+      user_email: userEmail,
+      date: today,
+      queue,
+      progress: { done: doneToday, total: totalPlanned, queued: queue.length, percent: totalPlanned ? Math.round(doneToday * 100 / totalPlanned) : 100 },
+      onboarding_heroes: onboardingHeroes,
+      billing: { is_check_day: isCheckDay, relevant_day: relevantDay },
+      routine: {
+        phase_1_done: !!routine?.phase_1_done_at,
+        phase_2_done: !!routine?.phase_2_done_at,
+        phase_3_done: !!routine?.phase_3_done_at,
+        phase_4_done: !!routine?.phase_4_done_at
+      },
+      counts: {
+        urgent: queue.filter(q => q.category === 'urgent').length,
+        today: queue.filter(q => q.category === 'today').length,
+        heads_up: queue.filter(q => q.category === 'heads_up').length,
+        open_flags: (flags || []).length,
+        onboarding_active: onboardingHeroes.length
+      }
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+function greetingFor(d) {
+  const h = d.getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+// Toggle phase completion for today's routine
+router.post('/day/phase/:n/toggle', async (req, res) => {
+  try {
+    const n = Number(req.params.n);
+    if (![1,2,3,4].includes(n)) return res.status(400).json({ error: 'phase 1-4 only' });
+    const userEmail = req.user?.email || 'anonymous';
+    const today = new Date().toISOString().slice(0, 10);
+    const col = `phase_${n}_done_at`;
+    const { data: existing } = await supabase.from('daily_routine')
+      .select('*').eq('user_email', userEmail).eq('routine_date', today).maybeSingle();
+    const currentlyDone = !!existing?.[col];
+    const newVal = currentlyDone ? null : new Date().toISOString();
+    if (existing) {
+      await supabase.from('daily_routine').update({ [col]: newVal }).eq('id', existing.id);
+    } else {
+      await supabase.from('daily_routine').insert({ user_email: userEmail, routine_date: today, [col]: newVal });
+    }
+    res.json({ ok: true, phase: n, done: !currentlyDone });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ---------- Client ops: set cohort ----------
 router.post('/clients/:id/cohort', async (req, res) => {
   try {

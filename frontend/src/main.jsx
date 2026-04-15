@@ -5,6 +5,7 @@ import './index.css';
 import App from './App.jsx';
 import Login from './pages/Login.jsx';
 import Triage from './pages/Triage.jsx';
+import DayFlow from './pages/DayFlow.jsx';
 import Clients from './pages/Clients.jsx';
 import Pipeline from './pages/Pipeline.jsx';
 import Activity from './pages/Activity.jsx';
@@ -31,7 +32,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 </DataProvider>
               </RequireAuth>
             }>
-              <Route path="/" element={<Triage />} />
+              <Route path="/" element={<DayFlow />} />
+              <Route path="/board" element={<Triage />} />
               <Route path="/clients" element={<Clients />} />
               <Route path="/clients/:id" element={<ClientProfile />} />
               <Route path="/pipeline" element={<Pipeline />} />

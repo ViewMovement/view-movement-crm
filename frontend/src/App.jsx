@@ -17,7 +17,8 @@ export default function App() {
       }
       if (typing) return;
       if (e.key === '/') { e.preventDefault(); setPaletteOpen(true); return; }
-      if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey) nav('/');
+      if (e.key.toLowerCase() === 'h' && !e.metaKey && !e.ctrlKey) nav('/');
+      if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey) nav('/board');
       if (e.key.toLowerCase() === 'c' && !e.metaKey && !e.ctrlKey) nav('/clients');
       if (e.key.toLowerCase() === 'p' && !e.metaKey && !e.ctrlKey) nav('/pipeline');
       if (e.key.toLowerCase() === 'b' && !e.metaKey && !e.ctrlKey) nav('/billing');

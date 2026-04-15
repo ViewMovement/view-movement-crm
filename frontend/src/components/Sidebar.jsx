@@ -5,7 +5,8 @@ import { useData } from '../lib/data.jsx';
 const MASTER_SHEET_URL = 'https://docs.google.com/spreadsheets/d/15AvJa6_1Dfe0UTmOjoFLeKHD-GzHuRasUG7ZZ2kYWG0/edit?usp=sharing';
 
 const OPS_ITEMS = [
-  { to: '/',         label: 'Triage',    icon: '◎', shortcut: 'T' },
+  { to: '/',         label: 'Today',     icon: '☀', shortcut: 'H' },
+  { to: '/board',    label: 'Triage',    icon: '◎', shortcut: 'T' },
   { to: '/clients',  label: 'Clients',   icon: '◧', shortcut: 'C' },
   { to: '/pipeline', label: 'Pipeline',  icon: '◇', shortcut: 'P' },
   { to: '/billing',  label: 'Billing',   icon: '◐', shortcut: 'B' },
@@ -28,6 +29,7 @@ export default function Sidebar({ onOpenPalette }) {
 
   const badges = {
     '/': urgentCount,
+    '/board': urgentCount,
     '/pipeline': pipelineCount,
     '/flags': openFlags,
     '/save-queue': openSaves
