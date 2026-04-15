@@ -98,6 +98,11 @@ function Chip({ label, active, onClick }) {
   return <button onClick={onClick} className={`chip ${active ? 'chip-active' : ''}`}>{label}</button>;
 }
 
+function ord(n) {
+  const s = ['th','st','nd','rd'], v = n % 100;
+  return s[(v - 20) % 10] || s[v] || s[0];
+}
+
 function Row({ client, onOpen }) {
   const loom = client.timers?.loom;
   const call = client.timers?.call_offer;
@@ -119,7 +124,7 @@ function Row({ client, onOpen }) {
         {call ? fmtRelative(call.next_due_at) : '—'}
       </div>
       <div className="col-span-2 text-right text-slate-300 tabular-nums">
-        {client.billing_date ? `${client.billing_date}th · ${client.days_until_billing}d` : '—'}
+        {client.billing_date ? `${client.billing_date}${ord(client.billing_date)} · ${client.days_until_billing}d` : '—'}
       </div>
     </div>
   );
