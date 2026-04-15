@@ -469,4 +469,287 @@ router.post('/clients/:id/cohort', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ---------- Health Score ----------
+// 0-100, higher = healthier. Investor-grade client health indicator.
+export function computeHealthScore(client, timers, flags, recentTps) {
+  let score = 100;
+  const now = Date.now();
+
+  // Status penalty
+  if (client.status === 'churned') return 0;
+  if (client.cohort === 'cancelling') score -= 40;
+  if (client.cohort === 'new') score -= 5;
+
+  // Overdue touchpoints
+  const loomTimer = (timers || []).find(t => t.timer_type === 'loom');
+  const callTimer = (timers || []).find(t => t.timer_type === 'call_offer');
+  if (loomTimer?.next_due_at) {
+    const daysOver = Math.floor((now - new Date(loomTimer.next_due_at)) / 86400000);
+    if (daysOver > 0) score -= Math.min(25, daysOver * 3);
+  }
+  if (callTimer?.next_due_at) {
+    const daysOver = Math.floor((now - new Date(callTimer.next_due_at)) / 86400000);
+    if (daysOver > 0) score -= Math.min(20, daysOver * 2);
+  }
+
+  // Open flags
+  const CRITICAL = new Set(['failed_payment', 'non_responsive', 'missed_posting', 'overdue_batch']);
+  for (const f of flags || []) {
+    if (CRITICAL.has(f.type)) score -= 15;
+    else score -= 7;
+  }
+
+  // Recent engagement bonus: touchpoints in last 7 days
+  const weekAgo = now - 7 * 86400000;
+  const recent = (recentTps || []).filter(t => new Date(t.created_at).getTime() > weekAgo).length;
+  if (recent >= 3) score += 5;
+  else if (recent === 0) score -= 10;
+
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function healthBand(score) {
+  if (score >= 80) return 'healthy';
+  if (score >= 60) return 'watch';
+  if (score >= 40) return 'at_risk';
+  return 'critical';
+}
+
+// ---------- Executive Metrics (investor-grade dashboard data) ----------
+router.get('/metrics', async (_req, res) => {
+  try {
+    const now = new Date();
+    const day90 = addDays(now, -90);
+    const day30 = addDays(now, -30);
+    const day14 = addDays(now, -14);
+    const day7  = addDays(now, -7);
+
+    const [
+      { data: clients },
+      { data: timers },
+      { data: flags },
+      { data: touchpoints90 },
+      { data: savePlans }
+    ] = await Promise.all([
+      supabase.from('clients').select('*'),
+      supabase.from('timers').select('*'),
+      supabase.from('situation_flags').select('*'),
+      supabase.from('touchpoints').select('client_id, type, created_at').gte('created_at', day90.toISOString()).order('created_at', { ascending: true }),
+      supabase.from('save_plans').select('*')
+    ]);
+
+    const tpsByClient = {};
+    const flagsByClient = {};
+    const timersByClient = {};
+    for (const t of touchpoints90 || []) (tpsByClient[t.client_id] = tpsByClient[t.client_id] || []).push(t);
+    for (const f of (flags || []).filter(f => !f.resolved_at)) (flagsByClient[f.client_id] = flagsByClient[f.client_id] || []).push(f);
+    for (const t of timers || []) (timersByClient[t.client_id] = timersByClient[t.client_id] || []).push(t);
+
+    // Client health distribution
+    const healthScores = [];
+    const healthByClient = {};
+    for (const c of clients || []) {
+      if (c.status === 'churned') continue;
+      const s = computeHealthScore(c, timersByClient[c.id], flagsByClient[c.id], tpsByClient[c.id]);
+      healthScores.push(s);
+      healthByClient[c.id] = { score: s, band: healthBand(s), name: c.name };
+    }
+    const healthDist = { healthy: 0, watch: 0, at_risk: 0, critical: 0 };
+    for (const s of healthScores) healthDist[healthBand(s)]++;
+    const avgHealth = healthScores.length ? Math.round(healthScores.reduce((a, b) => a + b, 0) / healthScores.length) : 0;
+
+    // Cohort breakdown
+    const cohorts = { new: 0, active_happy: 0, active_hands_off: 0, cancelling: 0, churned: 0 };
+    for (const c of clients || []) cohorts[c.cohort || 'active_happy'] = (cohorts[c.cohort || 'active_happy'] || 0) + 1;
+
+    // Touchpoint velocity (90d daily buckets)
+    const buckets = {};
+    for (let i = 0; i < 90; i++) {
+      const d = addDays(now, -i).toISOString().slice(0, 10);
+      buckets[d] = 0;
+    }
+    for (const t of touchpoints90 || []) {
+      const d = new Date(t.created_at).toISOString().slice(0, 10);
+      if (d in buckets) buckets[d]++;
+    }
+    const velocitySeries = Object.entries(buckets).sort().map(([date, count]) => ({ date, count }));
+
+    // Touchpoint counts by type (last 30d)
+    const byType = {};
+    for (const t of touchpoints90 || []) {
+      if (new Date(t.created_at) < day30) continue;
+      byType[t.type] = (byType[t.type] || 0) + 1;
+    }
+
+    // Active clients
+    const activeTotal = (clients || []).filter(c => c.status !== 'churned').length;
+    const newThisMonth = (clients || []).filter(c => {
+      if (!c.created_at) return false;
+      const d = new Date(c.created_at);
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    }).length;
+
+    // Churn / save rates (last 90d)
+    const churnedRecent = (clients || []).filter(c => c.status === 'churned' && c.updated_at && new Date(c.updated_at) > day90).length;
+    const savePlansTotal = (savePlans || []).length;
+    const savesWon  = (savePlans || []).filter(p => p.status === 'saved').length;
+    const savesLost = (savePlans || []).filter(p => p.status === 'lost').length;
+    const saveRate = (savesWon + savesLost) > 0 ? Math.round(savesWon / (savesWon + savesLost) * 100) : null;
+
+    // Flags open + resolved-this-week
+    const openFlags = (flags || []).filter(f => !f.resolved_at).length;
+    const resolvedThisWeek = (flags || []).filter(f => f.resolved_at && new Date(f.resolved_at) > day7).length;
+
+    // Response time (median hours from flag opened → resolved) over last 30d
+    const resolved30 = (flags || []).filter(f => f.resolved_at && new Date(f.resolved_at) > day30);
+    const resolveTimes = resolved30.map(f => (new Date(f.resolved_at) - new Date(f.created_at)) / 3600000);
+    resolveTimes.sort((a, b) => a - b);
+    const medianResolveH = resolveTimes.length ? Math.round(resolveTimes[Math.floor(resolveTimes.length / 2)] * 10) / 10 : null;
+
+    // Top-at-risk (lowest health, non-churned)
+    const atRisk = Object.entries(healthByClient)
+      .sort((a, b) => a[1].score - b[1].score)
+      .slice(0, 5)
+      .map(([id, v]) => ({ id, ...v }));
+
+    // Touchpoints this week / last week for delta
+    const tpsThisWeek = (touchpoints90 || []).filter(t => new Date(t.created_at) > day7).length;
+    const tpsLastWeek = (touchpoints90 || []).filter(t => {
+      const d = new Date(t.created_at);
+      return d > addDays(day7, -7) && d <= day7;
+    }).length;
+
+    res.json({
+      kpis: {
+        active_clients: activeTotal,
+        new_this_month: newThisMonth,
+        avg_health: avgHealth,
+        open_flags: openFlags,
+        tps_this_week: tpsThisWeek,
+        tps_last_week: tpsLastWeek,
+        tps_delta_pct: tpsLastWeek ? Math.round(((tpsThisWeek - tpsLastWeek) / tpsLastWeek) * 100) : null,
+        save_rate: saveRate,
+        saves_won: savesWon,
+        saves_lost: savesLost,
+        churned_recent: churnedRecent,
+        median_resolve_hours: medianResolveH,
+        resolved_this_week: resolvedThisWeek
+      },
+      health_distribution: healthDist,
+      cohorts,
+      velocity_series: velocitySeries,
+      touchpoints_by_type_30d: byType,
+      top_at_risk: atRisk,
+      generated_at: now.toISOString()
+    });
+  } catch (e) {
+    console.error('metrics error', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Health score for a single client (used by ClientDetailDrawer)
+router.get('/health/:clientId', async (req, res) => {
+  try {
+    const cutoff = addDays(new Date(), -30).toISOString();
+    const [{ data: client }, { data: timers }, { data: flags }, { data: tps }] = await Promise.all([
+      supabase.from('clients').select('*').eq('id', req.params.clientId).single(),
+      supabase.from('timers').select('*').eq('client_id', req.params.clientId),
+      supabase.from('situation_flags').select('*').eq('client_id', req.params.clientId).is('resolved_at', null),
+      supabase.from('touchpoints').select('*').eq('client_id', req.params.clientId).gte('created_at', cutoff).order('created_at', { ascending: true })
+    ]);
+    const score = computeHealthScore(client, timers, flags, tps);
+
+    // 30d daily sparkline
+    const buckets = {};
+    for (let i = 0; i < 30; i++) {
+      const d = addDays(new Date(), -i).toISOString().slice(0, 10);
+      buckets[d] = 0;
+    }
+    for (const t of tps || []) {
+      const d = new Date(t.created_at).toISOString().slice(0, 10);
+      if (d in buckets) buckets[d]++;
+    }
+    const sparkline = Object.entries(buckets).sort().map(([date, count]) => ({ date, count }));
+
+    res.json({ score, band: healthBand(score), sparkline, flags: flags || [], timers: timers || [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ---------- Weekly Executive Digest ----------
+router.get('/exec-digest', async (_req, res) => {
+  try {
+    const now = new Date();
+    const weekAgo = addDays(now, -7);
+
+    const [{ data: clients }, { data: tps }, { data: flags }, { data: savePlans }] = await Promise.all([
+      supabase.from('clients').select('*'),
+      supabase.from('touchpoints').select('*').gte('created_at', weekAgo.toISOString()),
+      supabase.from('situation_flags').select('*').gte('created_at', weekAgo.toISOString()),
+      supabase.from('save_plans').select('*').gte('created_at', weekAgo.toISOString())
+    ]);
+
+    const active = (clients || []).filter(c => c.status !== 'churned').length;
+    const newThisWeek = (clients || []).filter(c => c.created_at && new Date(c.created_at) > weekAgo).length;
+    const churnedThisWeek = (clients || []).filter(c => c.status === 'churned' && c.updated_at && new Date(c.updated_at) > weekAgo).length;
+    const loomsSent = (tps || []).filter(t => t.type === 'loom_sent').length;
+    const callsOffered = (tps || []).filter(t => t.type === 'call_offered').length;
+    const callsCompleted = (tps || []).filter(t => t.type === 'call_completed').length;
+    const flagsRaised = flags?.length || 0;
+    const flagsResolved = (flags || []).filter(f => f.resolved_at).length;
+    const savesStarted = savePlans?.length || 0;
+    const savesWon = (savePlans || []).filter(p => p.status === 'saved').length;
+
+    res.json({
+      week_ending: now.toISOString().slice(0, 10),
+      summary: {
+        active_clients: active,
+        new_this_week: newThisWeek,
+        churned_this_week: churnedThisWeek,
+        net_change: newThisWeek - churnedThisWeek,
+        looms_sent: loomsSent,
+        calls_offered: callsOffered,
+        calls_completed: callsCompleted,
+        flags_raised: flagsRaised,
+        flags_resolved: flagsResolved,
+        save_plans_started: savesStarted,
+        save_plans_won: savesWon
+      }
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ---------- Settings (cadence config) ----------
+router.get('/settings', async (req, res) => {
+  try {
+    const userEmail = req.user?.email || 'default';
+    const { data } = await supabase.from('user_settings').select('*').eq('user_email', userEmail).maybeSingle();
+    res.json(data || {
+      user_email: userEmail,
+      loom_interval_days: 21,
+      call_interval_days: 60,
+      billing_check_days: [1, 14],
+      greeting_name: null
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/settings', async (req, res) => {
+  try {
+    const userEmail = req.user?.email || 'default';
+    const { loom_interval_days, call_interval_days, greeting_name } = req.body || {};
+    const patch = { user_email: userEmail, loom_interval_days, call_interval_days, greeting_name, updated_at: new Date().toISOString() };
+    const { data: existing } = await supabase.from('user_settings').select('id').eq('user_email', userEmail).maybeSingle();
+    if (existing) {
+      const { data, error } = await supabase.from('user_settings').update(patch).eq('id', existing.id).select().single();
+      if (error) throw error;
+      res.json(data);
+    } else {
+      const { data, error } = await supabase.from('user_settings').insert(patch).select().single();
+      if (error) throw error;
+      res.json(data);
+    }
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 export default router;

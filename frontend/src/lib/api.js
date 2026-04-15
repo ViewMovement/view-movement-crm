@@ -50,5 +50,12 @@ export const api = {
   resolveFlag:     (id)            => request(`/api/ops/flags/${id}/resolve`, { method: 'POST', body: JSON.stringify({}) }),
   // Billing
   billingToday:    ()              => request('/api/ops/billing/today'),
-  billingCheck:    (body)          => request('/api/ops/billing/check', { method: 'POST', body: JSON.stringify(body) })
+  billingCheck:    (body)          => request('/api/ops/billing/check', { method: 'POST', body: JSON.stringify(body) }),
+  // Metrics + exec
+  metrics:         ()              => request('/api/ops/metrics'),
+  clientHealth:    (id)            => request(`/api/ops/health/${id}`),
+  execDigest:      ()              => request('/api/ops/exec-digest'),
+  // Settings
+  getSettings:     ()              => request('/api/ops/settings'),
+  saveSettings:    (body)          => request('/api/ops/settings', { method: 'POST', body: JSON.stringify(body) })
 };

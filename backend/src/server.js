@@ -7,6 +7,7 @@ import clientsRouter from './routes/clients.js';
 import activityRouter from './routes/activity.js';
 import syncRouter from './routes/sync.js';
 import opsRouter from './routes/ops.js';
+import exportRouter from './routes/export.js';
 import { requireAuth } from './lib/auth.js';
 import { startOnboardingPoller } from './jobs/onboardingSync.js';
 import { startCancellationPoller } from './jobs/cancellationSync.js';
@@ -38,6 +39,7 @@ app.use('/api/clients', requireAuth, clientsRouter);
 app.use('/api/activity', requireAuth, activityRouter);
 app.use('/api/sync', requireAuth, syncRouter);
 app.use('/api/ops', requireAuth, opsRouter);
+app.use('/api/export', requireAuth, exportRouter);
 
 const port = process.env.PORT || 8080;
 app.listen(port, () => {

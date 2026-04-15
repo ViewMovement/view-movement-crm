@@ -3,9 +3,11 @@ import { Outlet, useNavigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar.jsx';
 import CommandPalette from './components/CommandPalette.jsx';
 import SyncIndicator from './components/SyncIndicator.jsx';
+import ShortcutOverlay from './components/ShortcutOverlay.jsx';
 
 export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const nav = useNavigate();
 
   useEffect(() => {
@@ -26,6 +28,10 @@ export default function App() {
       if (e.key.toLowerCase() === 's' && !e.metaKey && !e.ctrlKey) nav('/save-queue');
       if (e.key.toLowerCase() === 'f' && !e.metaKey && !e.ctrlKey) nav('/flags');
       if (e.key.toLowerCase() === 'g' && !e.metaKey && !e.ctrlKey) nav('/digest');
+      if (e.key.toLowerCase() === 'r' && !e.metaKey && !e.ctrlKey) nav('/reports');
+      if (e.key === ',' && !e.metaKey && !e.ctrlKey) nav('/settings');
+      if (e.key === '?' && !e.metaKey && !e.ctrlKey) { e.preventDefault(); setShortcutsOpen(true); }
+      if (e.key === 'Escape') { setShortcutsOpen(false); }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -48,6 +54,7 @@ export default function App() {
         </main>
       </div>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      {shortcutsOpen && <ShortcutOverlay onClose={() => setShortcutsOpen(false)} />}
     </div>
   );
 }

@@ -13,6 +13,10 @@ import Digest from './pages/Digest.jsx';
 import SaveQueue from './pages/SaveQueue.jsx';
 import Billing from './pages/Billing.jsx';
 import Flags from './pages/Flags.jsx';
+import Reports from './pages/Reports.jsx';
+import SettingsPage from './pages/Settings.jsx';
+import NotFound from './pages/NotFound.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 import ClientProfile from './pages/ClientProfile.jsx';
 import { AuthProvider, RequireAuth } from './lib/auth.jsx';
 import { DataProvider } from './lib/data.jsx';
@@ -21,6 +25,7 @@ import { ToastProvider } from './lib/toast.jsx';
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
+      <ErrorBoundary>
       <AuthProvider>
         <ToastProvider>
           <Routes>
@@ -42,11 +47,14 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route path="/save-queue" element={<SaveQueue />} />
               <Route path="/flags" element={<Flags />} />
               <Route path="/digest" element={<Digest />} />
-              <Route path="*" element={<Navigate to="/" />} />
+              <Route path="/reports" element={<Reports />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>
         </ToastProvider>
       </AuthProvider>
+      </ErrorBoundary>
     </BrowserRouter>
   </React.StrictMode>
 );

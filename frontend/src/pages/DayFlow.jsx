@@ -6,6 +6,7 @@ import { useData } from '../lib/data.jsx';
 import ClientDetailDrawer from '../components/ClientDetailDrawer.jsx';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import { Skeleton } from '../components/primitives.jsx';
+import KpiStrip from '../components/KpiStrip.jsx';
 
 export default function DayFlow() {
   const [day, setDay] = useState(null);
@@ -94,6 +95,9 @@ export default function DayFlow() {
         </div>
         <div className="text-xs text-slate-500 mt-1 tabular-nums">{progress.done}/{progress.total} · {progress.percent}%</div>
       </section>
+
+      {/* At-a-glance KPI strip */}
+      <KpiStrip />
 
       {/* Billing pulse banner */}
       {billing.is_check_day && (

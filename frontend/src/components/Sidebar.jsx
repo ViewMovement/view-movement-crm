@@ -19,6 +19,11 @@ const RETENTION_ITEMS = [
   { to: '/digest',     label: 'Digest',     icon: '◈', shortcut: 'G' }
 ];
 
+const INSIGHT_ITEMS = [
+  { to: '/reports',  label: 'Reports',  icon: '◑', shortcut: 'R' },
+  { to: '/settings', label: 'Settings', icon: '⚙', shortcut: ',' }
+];
+
 export default function Sidebar({ onOpenPalette }) {
   const { user, signOut } = useAuth();
   const { today, clients, triage, flags, savePlans } = useData();
@@ -59,6 +64,10 @@ export default function Sidebar({ onOpenPalette }) {
         <div className="h-3" />
         <SectionLabel>Retention</SectionLabel>
         {RETENTION_ITEMS.map(item => <NavItem key={item.to} item={item} badge={badges[item.to]} />)}
+
+        <div className="h-3" />
+        <SectionLabel>Insight</SectionLabel>
+        {INSIGHT_ITEMS.map(item => <NavItem key={item.to} item={item} />)}
 
         <div className="h-3" />
         <SectionLabel>External</SectionLabel>

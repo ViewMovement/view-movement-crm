@@ -5,6 +5,8 @@ import { useToast } from '../lib/toast.jsx';
 import { useData } from '../lib/data.jsx';
 import { statusMeta, StatusDot, Skeleton } from './primitives.jsx';
 import { fmtDate, fmtRelative, touchpointLabel } from '../lib/format.js';
+import HealthRing from './HealthRing.jsx';
+import Sparkline from './Sparkline.jsx';
 
 const SITUATION_TYPES = [
   { key: 'missed_posting',        label: 'Missed posting' },
@@ -25,6 +27,7 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
   const [onboardingDefs, setOnboardingDefs] = useState([]);
   const [closeoutDefs, setCloseoutDefs] = useState([]);
   const [openFlags, setOpenFlags] = useState([]);
+  const [health, setHealth] = useState(null);
   const { refresh } = useData();
   const { show } = useToast();
 
@@ -39,6 +42,7 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
     ]);
     setClient(c); setOnboardingDefs(o); setCloseoutDefs(co);
     setOpenFlags((fl?.flags || []).filter(f => f.client_id === clientId));
+    api.clientHealth(clientId).then(setHealth).catch(() => setHealth(null));
   }, [clientId]);
 
   useEffect(() => { load(); }, [load]);
@@ -170,6 +174,20 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
                 </select>
               } />
             </div>
+
+            {/* Health snapshot */}
+            {health && (
+              <div className="rounded-lg border border-ink-800 bg-ink-950/40 p-4 flex items-center gap-4">
+                <HealthRing score={health.score} size={64} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs uppercase tracking-wider text-slate-500">Health · {health.band.replace('_', ' ')}</div>
+                  <div className="text-sm text-slate-300 mt-1">30-day activity</div>
+                </div>
+                <div className="w-40 h-10">
+                  <Sparkline data={(health.sparkline || []).map(s => s.count)} height={40} />
+                </div>
+              </div>
+            )}
 
             {/* Onboarding stepper (shown when cohort=new or steps incomplete) */}
             {client.cohort === 'new' || (onboardingDefs.length && !onboardingDefs.every(s => client.onboarding_steps?.[s.key])) ? (
