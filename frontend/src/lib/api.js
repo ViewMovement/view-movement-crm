@@ -30,5 +30,23 @@ export const api = {
   activity:        (limit=200)     => request(`/api/activity?limit=${limit}`),
   syncStatus:      ()              => request('/api/sync/status'),
   runSync:         ()              => request('/api/sync/run', { method: 'POST' }),
-  weeklyDigest:    ()              => request('/api/clients/digest/weekly')
+  weeklyDigest:    ()              => request('/api/clients/digest/weekly'),
+  // Ops
+  triage:          ()              => request('/api/ops/triage'),
+  onboardingSteps: ()              => request('/api/ops/onboarding-steps'),
+  closeoutSteps:   ()              => request('/api/ops/closeout-steps'),
+  toggleOnboarding:(id, step)      => request(`/api/ops/clients/${id}/onboarding/${step}/toggle`, { method: 'POST' }),
+  toggleCloseout:  (id, step)      => request(`/api/ops/clients/${id}/closeout/${step}/toggle`, { method: 'POST' }),
+  setCohort:       (id, cohort)    => request(`/api/ops/clients/${id}/cohort`, { method: 'POST', body: JSON.stringify({ cohort }) }),
+  // Save plans
+  listSavePlans:   ()              => request('/api/ops/save-plans'),
+  createSavePlan:  (body)          => request('/api/ops/save-plans', { method: 'POST', body: JSON.stringify(body) }),
+  updateSavePlan:  (id, patch)     => request(`/api/ops/save-plans/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  // Flags
+  listFlags:       ()              => request('/api/ops/flags'),
+  createFlag:      (body)          => request('/api/ops/flags', { method: 'POST', body: JSON.stringify(body) }),
+  resolveFlag:     (id)            => request(`/api/ops/flags/${id}/resolve`, { method: 'POST', body: JSON.stringify({}) }),
+  // Billing
+  billingToday:    ()              => request('/api/ops/billing/today'),
+  billingCheck:    (body)          => request('/api/ops/billing/check', { method: 'POST', body: JSON.stringify(body) })
 };

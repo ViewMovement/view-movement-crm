@@ -6,6 +6,7 @@ import 'dotenv/config';
 import clientsRouter from './routes/clients.js';
 import activityRouter from './routes/activity.js';
 import syncRouter from './routes/sync.js';
+import opsRouter from './routes/ops.js';
 import { requireAuth } from './lib/auth.js';
 import { startOnboardingPoller } from './jobs/onboardingSync.js';
 import { startCancellationPoller } from './jobs/cancellationSync.js';
@@ -36,6 +37,7 @@ app.post('/admin/seed-existing', async (req, res) => {
 app.use('/api/clients', requireAuth, clientsRouter);
 app.use('/api/activity', requireAuth, activityRouter);
 app.use('/api/sync', requireAuth, syncRouter);
+app.use('/api/ops', requireAuth, opsRouter);
 
 const port = process.env.PORT || 8080;
 app.listen(port, () => {

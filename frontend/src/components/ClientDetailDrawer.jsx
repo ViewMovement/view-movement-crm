@@ -6,17 +6,39 @@ import { useData } from '../lib/data.jsx';
 import { statusMeta, StatusDot, Skeleton } from './primitives.jsx';
 import { fmtDate, fmtRelative, touchpointLabel } from '../lib/format.js';
 
+const SITUATION_TYPES = [
+  { key: 'missed_posting',        label: 'Missed posting' },
+  { key: 'overdue_batch',         label: 'Overdue batch' },
+  { key: 'non_responsive',        label: 'Non-responsive 48h+' },
+  { key: 'delayed_onboarding',    label: 'Delayed onboarding' },
+  { key: 'dark_contractor',       label: 'Dark contractor' },
+  { key: 'retention_opportunity', label: 'Retention opportunity' },
+  { key: 'sheet_mismatch',        label: 'Sheet mismatch' },
+  { key: 'scripted_only',         label: 'Scripted only' },
+  { key: 'out_of_scope',          label: 'Out of scope' },
+  { key: 'failed_payment',        label: 'Failed payment' }
+];
+
 export default function ClientDetailDrawer({ clientId, onClose }) {
   const [client, setClient] = useState(null);
   const [note, setNote] = useState('');
+  const [onboardingDefs, setOnboardingDefs] = useState([]);
+  const [closeoutDefs, setCloseoutDefs] = useState([]);
+  const [openFlags, setOpenFlags] = useState([]);
   const { refresh } = useData();
   const { show } = useToast();
 
   const load = useCallback(async () => {
     if (!clientId) return;
     setClient(null);
-    const c = await api.getClient(clientId);
-    setClient(c);
+    const [c, o, co, fl] = await Promise.all([
+      api.getClient(clientId),
+      api.onboardingSteps().catch(() => []),
+      api.closeoutSteps().catch(() => []),
+      api.listFlags().catch(() => ({ flags: [] }))
+    ]);
+    setClient(c); setOnboardingDefs(o); setCloseoutDefs(co);
+    setOpenFlags((fl?.flags || []).filter(f => f.client_id === clientId));
   }, [clientId]);
 
   useEffect(() => { load(); }, [load]);
@@ -58,6 +80,34 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
     await api.updateClient(clientId, { status });
     load(); refresh(true);
     show({ message: `Status → ${statusMeta(status).label}` });
+  }
+
+  async function setCohort(cohort) {
+    await api.setCohort(clientId, cohort);
+    load(); refresh(true);
+    show({ message: `Cohort → ${cohort.replace(/_/g, ' ')}` });
+  }
+
+  async function toggleOnboardingStep(step) {
+    await api.toggleOnboarding(clientId, step);
+    load(); refresh(true);
+  }
+
+  async function toggleCloseoutStep(step) {
+    await api.toggleCloseout(clientId, step);
+    load(); refresh(true);
+  }
+
+  async function addFlag(type) {
+    await api.createFlag({ client_id: clientId, type });
+    load(); refresh(true);
+    show({ message: 'Flag raised.' });
+  }
+
+  async function resolveFlag(id) {
+    await api.resolveFlag(id);
+    load(); refresh(true);
+    show({ message: 'Flag resolved.' });
   }
 
   return (
@@ -108,7 +158,55 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
                 : '—'} />
               <MetaCell label="MRR" value={client.mrr ? `$${client.mrr}` : '—'} />
               <MetaCell label="Source" value={client.content_source || '—'} />
-              <MetaCell label="Added" value={fmtDate(client.created_at)} />
+              <MetaCell label="Cohort" value={
+                <select value={client.cohort || ''} onChange={e => setCohort(e.target.value)}
+                  className="bg-ink-800 border border-ink-700 rounded-md text-sm px-2 py-1 w-full">
+                  <option value="" disabled>—</option>
+                  <option value="new">New</option>
+                  <option value="active_happy">Active (happy)</option>
+                  <option value="active_hands_off">Active (hands-off)</option>
+                  <option value="cancelling">Cancelling</option>
+                  <option value="churned">Churned</option>
+                </select>
+              } />
+            </div>
+
+            {/* Onboarding stepper (shown when cohort=new or steps incomplete) */}
+            {client.cohort === 'new' || (onboardingDefs.length && !onboardingDefs.every(s => client.onboarding_steps?.[s.key])) ? (
+              <Stepper title="Onboarding"
+                defs={onboardingDefs}
+                done={client.onboarding_steps || {}}
+                onToggle={toggleOnboardingStep} />
+            ) : null}
+
+            {/* Closeout stepper (churned only) */}
+            {client.status === 'churned' || client.cohort === 'cancelling' ? (
+              <Stepper title={client.status === 'churned' ? 'Closeout' : 'Closeout (prepared)'}
+                defs={closeoutDefs}
+                done={client.closeout_steps || {}}
+                onToggle={toggleCloseoutStep} />
+            ) : null}
+
+            {/* Situation flags */}
+            <div>
+              <div className="text-xs uppercase tracking-wide text-slate-500 mb-2 flex items-center justify-between">
+                <span>Situation flags {openFlags.length > 0 && <span className="text-amber-400">· {openFlags.length} open</span>}</span>
+              </div>
+              {openFlags.length > 0 && (
+                <div className="space-y-1.5 mb-2">
+                  {openFlags.map(f => (
+                    <div key={f.id} className="flex items-center justify-between rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-1.5 text-sm">
+                      <span>⚑ {SITUATION_TYPES.find(t => t.key === f.type)?.label || f.type}</span>
+                      <button className="text-xs text-slate-400 hover:text-slate-100" onClick={() => resolveFlag(f.id)}>Resolve</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <select defaultValue="" onChange={e => { if (e.target.value) { addFlag(e.target.value); e.target.value=''; } }}
+                className="bg-ink-800 border border-ink-700 rounded-md text-xs px-2 py-1.5 w-full">
+                <option value="" disabled>+ Raise a flag…</option>
+                {SITUATION_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+              </select>
             </div>
 
             {/* Timers */}
@@ -214,3 +312,37 @@ function TimerBlock({ timer, label, onAction, onSnooze }) {
 }
 
 function suffix(n) { return n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'; }
+
+function Stepper({ title, defs, done, onToggle }) {
+  if (!defs.length) return null;
+  const completed = defs.filter(s => done[s.key]).length;
+  return (
+    <div>
+      <div className="text-xs uppercase tracking-wide text-slate-500 mb-2 flex items-center justify-between">
+        <span>{title}</span>
+        <span className="text-slate-400 tabular-nums">{completed}/{defs.length}</span>
+      </div>
+      <div className="h-1 rounded-full bg-ink-800 overflow-hidden mb-3">
+        <div className="h-full bg-emerald-500 transition-all" style={{ width: `${(completed / defs.length) * 100}%` }} />
+      </div>
+      <ol className="space-y-1">
+        {defs.map((s, i) => {
+          const isDone = !!done[s.key];
+          return (
+            <li key={s.key}>
+              <button onClick={() => onToggle(s.key)}
+                className={`w-full flex items-center gap-3 rounded-md px-2.5 py-1.5 text-sm text-left transition ${
+                  isDone ? 'bg-emerald-500/5 text-slate-300' : 'hover:bg-ink-800 text-slate-200'
+                }`}>
+                <span className={`h-4 w-4 rounded-full border grid place-items-center text-[10px] shrink-0 ${
+                  isDone ? 'bg-emerald-500 border-emerald-500 text-ink-950' : 'border-ink-600 text-slate-500'
+                }`}>{isDone ? '✓' : i + 1}</span>
+                <span className={`flex-1 ${isDone ? 'line-through text-slate-500' : ''}`}>{s.label}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}

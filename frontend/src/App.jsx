@@ -20,7 +20,10 @@ export default function App() {
       if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey) nav('/');
       if (e.key.toLowerCase() === 'c' && !e.metaKey && !e.ctrlKey) nav('/clients');
       if (e.key.toLowerCase() === 'p' && !e.metaKey && !e.ctrlKey) nav('/pipeline');
+      if (e.key.toLowerCase() === 'b' && !e.metaKey && !e.ctrlKey) nav('/billing');
       if (e.key.toLowerCase() === 'a' && !e.metaKey && !e.ctrlKey) nav('/activity');
+      if (e.key.toLowerCase() === 's' && !e.metaKey && !e.ctrlKey) nav('/save-queue');
+      if (e.key.toLowerCase() === 'f' && !e.metaKey && !e.ctrlKey) nav('/flags');
       if (e.key.toLowerCase() === 'g' && !e.metaKey && !e.ctrlKey) nav('/digest');
     }
     window.addEventListener('keydown', onKey);

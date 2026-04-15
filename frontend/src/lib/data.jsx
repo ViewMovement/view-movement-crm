@@ -6,6 +6,9 @@ const Ctx = createContext(null);
 export function DataProvider({ children }) {
   const [clients, setClients] = useState([]);
   const [today, setToday] = useState([]);
+  const [triage, setTriage] = useState(null);
+  const [flags, setFlags] = useState([]);
+  const [savePlans, setSavePlans] = useState([]);
   const [sync, setSync] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(null);
@@ -13,12 +16,16 @@ export function DataProvider({ children }) {
   const refresh = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [c, t, s] = await Promise.all([
+      const [c, t, tr, fl, sp, s] = await Promise.all([
         api.listClients(),
         api.todayActions(),
+        api.triage().catch(() => null),
+        api.listFlags().catch(() => ({ flags: [] })),
+        api.listSavePlans().catch(() => []),
         api.syncStatus().catch(() => null)
       ]);
-      setClients(c); setToday(t); setSync(s);
+      setClients(c); setToday(t); setTriage(tr);
+      setFlags(fl?.flags || []); setSavePlans(sp); setSync(s);
       setLastRefresh(new Date());
     } finally {
       setLoading(false);
@@ -26,15 +33,13 @@ export function DataProvider({ children }) {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
-
-  // Auto-refresh silently every 90s
   useEffect(() => {
     const id = setInterval(() => refresh(true), 90_000);
     return () => clearInterval(id);
   }, [refresh]);
 
   return (
-    <Ctx.Provider value={{ clients, today, sync, loading, lastRefresh, refresh }}>
+    <Ctx.Provider value={{ clients, today, triage, flags, savePlans, sync, loading, lastRefresh, refresh }}>
       {children}
     </Ctx.Provider>
   );

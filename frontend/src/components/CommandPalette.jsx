@@ -3,11 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { useData } from '../lib/data.jsx';
 
 const NAV = [
-  { label: 'Go to Today', path: '/' },
+  { label: 'Go to Triage', path: '/' },
   { label: 'Go to Clients', path: '/clients' },
   { label: 'Go to Pipeline', path: '/pipeline' },
+  { label: 'Go to Billing', path: '/billing' },
   { label: 'Go to Activity', path: '/activity' },
-  { label: 'Go to Weekly Digest', path: '/digest' }
+  { label: 'Go to Save Queue', path: '/save-queue' },
+  { label: 'Go to Flags', path: '/flags' },
+  { label: 'Go to Weekly Digest', path: '/digest' },
+  { label: 'Open Master Sheet ↗', path: 'https://docs.google.com/spreadsheets/d/15AvJa6_1Dfe0UTmOjoFLeKHD-GzHuRasUG7ZZ2kYWG0/edit?usp=sharing', external: true }
 ];
 
 export default function CommandPalette({ open, onClose }) {
@@ -22,7 +26,7 @@ export default function CommandPalette({ open, onClose }) {
   const items = useMemo(() => {
     const query = q.trim().toLowerCase();
     const navHits = NAV.filter(n => !query || n.label.toLowerCase().includes(query))
-      .map(n => ({ kind: 'nav', label: n.label, action: () => nav(n.path) }));
+      .map(n => ({ kind: 'nav', label: n.label, action: () => n.external ? window.open(n.path, '_blank') : nav(n.path) }));
     const clientHits = (clients || [])
       .filter(c => !query || c.name.toLowerCase().includes(query) || (c.email || '').toLowerCase().includes(query))
       .slice(0, 20)
