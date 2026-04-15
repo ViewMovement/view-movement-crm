@@ -42,6 +42,22 @@ app.use('/api/activity', requireAuth, activityRouter);
 app.use('/api/sync', requireAuth, syncRouter);
 app.use('/api/ops', requireAuth, opsRouter);
 app.use('/api/export', requireAuth, exportRouter);
+// Admin-guarded Slack trigger (seed-token) must be outside requireAuth
+app.post('/admin/slack/run-now', async (req, res) => {
+  const token = req.header('x-seed-token');
+  if (!process.env.SEED_TOKEN || token !== process.env.SEED_TOKEN) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  try {
+    const { runSlackDigestOnce } = await import('./jobs/slackDigest.js');
+    const lookback = Number(req.query.hours || req.body?.lookback_hours || 24);
+    const result = await runSlackDigestOnce({ lookbackHours: lookback });
+    res.json({ ok: true, result });
+  } catch (e) {
+    console.error('[admin/slack/run-now]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
 app.use('/api/slack', requireAuth, slackRouter);
 
 const port = process.env.PORT || 8080;
