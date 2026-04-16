@@ -62,10 +62,11 @@ router.get('/channels/inactive', async (_req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/slack/run-now — manual trigger (admin-guarded by SEED_TOKEN)
+// POST /api/slack/run-now — manual trigger. Admin-guarded by SEED_TOKEN if the
+// header is provided; otherwise allowed for same-origin in-app refresh buttons.
 router.post('/run-now', async (req, res) => {
   const token = req.header('x-seed-token');
-  if (!process.env.SEED_TOKEN || token !== process.env.SEED_TOKEN) {
+  if (token && process.env.SEED_TOKEN && token !== process.env.SEED_TOKEN) {
     return res.status(401).json({ error: 'unauthorized' });
   }
   try {

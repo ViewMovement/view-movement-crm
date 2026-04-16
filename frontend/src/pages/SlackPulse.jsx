@@ -15,7 +15,19 @@ export default function SlackPulse() {
   const [inactive, setInactive] = useState([]);
   const [filter, setFilter] = useState('unseen');
   const [loading, setLoading] = useState(true);
+  const [scanning, setScanning] = useState(false);
   const { show } = useToast();
+
+  async function runScan() {
+    setScanning(true);
+    try {
+      const r = await api.slackRunNow();
+      show?.({ message: `Scan complete · ${r.result?.items_saved ?? 0} items · ${r.result?.channels_scanned ?? 0} channels` });
+      await load();
+    } catch (e) {
+      show?.({ message: 'Scan failed: ' + e.message, tone: 'error' });
+    } finally { setScanning(false); }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -68,6 +80,10 @@ export default function SlackPulse() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={runScan} disabled={scanning}
+            className="px-3 py-1.5 rounded-md text-sm border border-ink-700 bg-ink-900 hover:bg-ink-800 text-slate-200 transition disabled:opacity-50">
+            {scanning ? 'Scanning…' : 'Run scan'}
+          </button>
           <FilterChip active={filter === 'unseen'} onClick={() => setFilter('unseen')}>Unseen</FilterChip>
           <FilterChip active={filter === 'all'}    onClick={() => setFilter('all')}>All</FilterChip>
           {items.length > 0 && filter === 'unseen' && (

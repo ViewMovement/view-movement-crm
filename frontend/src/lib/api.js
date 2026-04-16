@@ -60,6 +60,7 @@ export const api = {
   saveSettings:    (body)          => request('/api/ops/settings', { method: 'POST', body: JSON.stringify(body) }),
   // Slack Pulse
   slackStatus:     ()              => request('/api/slack/status'),
+  slackRunNow:     ()              => request('/api/slack/run-now', { method: 'POST', body: '{}' }),
   slackPulse:      (seen='unseen') => request(`/api/slack/pulse?seen=${seen}`),
   slackMarkSeen:   (id)            => request(`/api/slack/pulse/${id}/seen`, { method: 'POST', body: '{}' }),
   slackSeenAll:    ()              => request(`/api/slack/pulse/seen-all`, { method: 'POST', body: '{}' }),
