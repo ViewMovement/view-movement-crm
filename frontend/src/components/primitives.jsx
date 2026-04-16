@@ -1,10 +1,10 @@
 import { useState } from 'react';
 
 const STATUS_META = {
-  green:   { label: 'Healthy', dot: 'bg-emerald-400', ring: 'border-l-emerald-500' },
-  yellow:  { label: 'Watch',   dot: 'bg-amber-400',   ring: 'border-l-amber-500' },
-  red:     { label: 'At Risk', dot: 'bg-rose-400',    ring: 'border-l-rose-500' },
-  churned: { label: 'Churned', dot: 'bg-slate-500',   ring: 'border-l-slate-500' }
+  green:   { label: 'Healthy', dot: 'bg-emerald-400', ring: 'border-l-emerald-500', cls: 'text-emerald-300' },
+  yellow:  { label: 'Watch',   dot: 'bg-amber-400',   ring: 'border-l-amber-500',   cls: 'text-amber-300' },
+  red:     { label: 'At Risk', dot: 'bg-rose-400',    ring: 'border-l-rose-500',     cls: 'text-rose-300' },
+  churned: { label: 'Churned', dot: 'bg-slate-500',   ring: 'border-l-slate-500',    cls: 'text-slate-400' }
 };
 
 export function statusMeta(s) { return STATUS_META[s] || STATUS_META.green; }

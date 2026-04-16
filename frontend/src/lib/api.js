@@ -19,6 +19,7 @@ export const api = {
   listClients:     ()              => request('/api/clients'),
   todayActions:    ()              => request('/api/clients/today'),
   getClient:       (id)            => request(`/api/clients/${id}`),
+  createClient:    (body)          => request('/api/clients', { method: 'POST', body: JSON.stringify(body) }),
   updateClient:    (id, patch)     => request(`/api/clients/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   action:          (id, type)      => request(`/api/clients/${id}/action`, { method: 'POST', body: JSON.stringify({ type }) }),
   bulkAction:      (ids, type)     => request(`/api/clients/bulk-action`, { method: 'POST', body: JSON.stringify({ ids, type }) }),

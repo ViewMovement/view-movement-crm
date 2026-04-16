@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useData } from '../lib/data.jsx';
+import { api } from '../lib/api.js';
+import { useToast } from '../lib/toast.jsx';
 import ClientDetailDrawer from '../components/ClientDetailDrawer.jsx';
 import { Empty, SectionHeader, Skeleton, statusMeta, StatusDot, TabIntro } from '../components/primitives.jsx';
 import { fmtRelative, fmtMRR } from '../lib/format.js';
@@ -8,12 +10,14 @@ import { fmtRelative, fmtMRR } from '../lib/format.js';
 const STATUS_ORDER = { churned: 0, red: 1, yellow: 2, green: 3 };
 
 export default function Clients() {
-  const { clients, loading } = useData();
+  const { clients, loading, refresh } = useData();
+  const { show } = useToast();
   const [params, setParams] = useSearchParams();
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
-  const [sort, setSort] = useState('status'); // status | name | recent | billing
+  const [sort, setSort] = useState('status');
   const [openId, setOpenId] = useState(null);
+  const [showAddForm, setShowAddForm] = useState(false);
 
   useEffect(() => {
     const focus = params.get('focus');
@@ -48,6 +52,18 @@ export default function Clients() {
     return by;
   }, [clients]);
 
+  async function handleAddClient(data) {
+    try {
+      const newClient = await api.createClient(data);
+      refresh(true);
+      setShowAddForm(false);
+      show({ message: `${data.name} added.` });
+      setOpenId(newClient.id);
+    } catch (e) {
+      show({ message: `Error: ${e.message}` });
+    }
+  }
+
   if (loading) return <Skeleton rows={12} className="h-11 w-full" />;
 
   return (
@@ -58,6 +74,9 @@ export default function Clients() {
       <SectionHeader
         title="Clients"
         subtitle={`${counts.all} total · ${counts.green} healthy · ${counts.yellow} watch · ${counts.red} at risk · ${counts.churned} churned`}
+        right={
+          <button onClick={() => setShowAddForm(true)} className="btn btn-primary btn-sm">+ Add Client</button>
+        }
       />
 
       <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -93,9 +112,190 @@ export default function Clients() {
       )}
 
       {openId && <ClientDetailDrawer clientId={openId} onClose={() => setOpenId(null)} />}
+      {showAddForm && <AddClientModal onClose={() => setShowAddForm(false)} onSave={handleAddClient} />}
     </>
   );
 }
+
+/* ─── Add Client Modal ─── */
+
+const PACKAGES = ['12', '30', '60'];
+const STATUSES = [
+  { value: 'green', label: 'Healthy' },
+  { value: 'yellow', label: 'Watch' },
+  { value: 'red', label: 'At Risk' },
+  { value: 'churned', label: 'Churned' }
+];
+const STRIPE_STATUSES = ['Active', 'Cancelled', 'PIF', 'Not Setup Yet'];
+const COHORTS = [
+  { value: 'new', label: 'New (onboarding)' },
+  { value: 'active_happy', label: 'Active (happy)' },
+  { value: 'active_hands_off', label: 'Active (hands-off)' },
+  { value: 'cancelling', label: 'Cancelling' },
+  { value: 'churned', label: 'Churned' }
+];
+
+function AddClientModal({ onClose, onSave }) {
+  const [form, setForm] = useState({
+    name: '', email: '', company: '',
+    package: '12', billing_date: '', mrr: '',
+    status: 'green', cohort: 'new',
+    stripe_status: 'Not Setup Yet',
+    content_source: '',
+    onboarding_flag: true,
+    action_needed: '', reason: ''
+  });
+  const [saving, setSaving] = useState(false);
+
+  function set(field, value) {
+    setForm(prev => ({ ...prev, [field]: value }));
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!form.name.trim()) return;
+    setSaving(true);
+    const payload = { ...form };
+    // Convert numeric fields
+    if (payload.billing_date) payload.billing_date = Number(payload.billing_date);
+    else delete payload.billing_date;
+    if (payload.mrr) payload.mrr = Number(payload.mrr);
+    else delete payload.mrr;
+    // Clean empty strings
+    for (const k of Object.keys(payload)) {
+      if (payload[k] === '') delete payload[k];
+    }
+    await onSave(payload);
+    setSaving(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-fade" />
+      <form onSubmit={handleSubmit}
+        className="relative bg-ink-900 border border-ink-700 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto animate-slide-up"
+        onClick={e => e.stopPropagation()}>
+
+        <div className="sticky top-0 bg-ink-900/95 backdrop-blur border-b border-ink-800 px-6 py-4 flex items-center justify-between z-10">
+          <h2 className="text-lg font-semibold text-slate-100">Add New Client</h2>
+          <button type="button" onClick={onClose}
+            className="text-slate-400 hover:text-white w-8 h-8 grid place-items-center rounded hover:bg-ink-800">✕</button>
+        </div>
+
+        <div className="px-6 py-5 space-y-5">
+          {/* Core info */}
+          <fieldset>
+            <legend className="text-[11px] uppercase tracking-wider text-slate-500 mb-3">Client Information</legend>
+            <div className="space-y-3">
+              <FormField label="Client name *" required>
+                <input className="input w-full" placeholder="e.g. Acme Corp" autoFocus
+                  value={form.name} onChange={e => set('name', e.target.value)} required />
+              </FormField>
+              <div className="grid grid-cols-2 gap-3">
+                <FormField label="Email">
+                  <input className="input w-full" type="email" placeholder="client@example.com"
+                    value={form.email} onChange={e => set('email', e.target.value)} />
+                </FormField>
+                <FormField label="Company">
+                  <input className="input w-full" placeholder="Company name"
+                    value={form.company} onChange={e => set('company', e.target.value)} />
+                </FormField>
+              </div>
+            </div>
+          </fieldset>
+
+          {/* Package & billing */}
+          <fieldset>
+            <legend className="text-[11px] uppercase tracking-wider text-slate-500 mb-3">Package & Billing</legend>
+            <div className="grid grid-cols-3 gap-3">
+              <FormField label="Package (reels/mo)">
+                <select className="input w-full" value={form.package} onChange={e => set('package', e.target.value)}>
+                  {PACKAGES.map(p => <option key={p} value={p}>{p} reels</option>)}
+                  <option value="custom">Custom</option>
+                </select>
+              </FormField>
+              <FormField label="MRR ($)">
+                <input className="input w-full" type="number" min="0" step="100" placeholder="3300"
+                  value={form.mrr} onChange={e => set('mrr', e.target.value)} />
+              </FormField>
+              <FormField label="Billing day (1-31)">
+                <input className="input w-full" type="number" min="1" max="31" placeholder="15"
+                  value={form.billing_date} onChange={e => set('billing_date', e.target.value)} />
+              </FormField>
+            </div>
+          </fieldset>
+
+          {/* Status & lifecycle */}
+          <fieldset>
+            <legend className="text-[11px] uppercase tracking-wider text-slate-500 mb-3">Status & Lifecycle</legend>
+            <div className="grid grid-cols-3 gap-3">
+              <FormField label="Health status">
+                <select className="input w-full" value={form.status} onChange={e => set('status', e.target.value)}>
+                  {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                </select>
+              </FormField>
+              <FormField label="Cohort">
+                <select className="input w-full" value={form.cohort} onChange={e => set('cohort', e.target.value)}>
+                  {COHORTS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                </select>
+              </FormField>
+              <FormField label="Stripe status">
+                <select className="input w-full" value={form.stripe_status} onChange={e => set('stripe_status', e.target.value)}>
+                  {STRIPE_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </FormField>
+            </div>
+            <div className="mt-3">
+              <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+                <input type="checkbox" checked={form.onboarding_flag}
+                  onChange={e => set('onboarding_flag', e.target.checked)}
+                  className="rounded border-ink-600 bg-ink-800 text-emerald-500 focus:ring-emerald-500/30" />
+                Client is in onboarding
+              </label>
+            </div>
+          </fieldset>
+
+          {/* Content & notes */}
+          <fieldset>
+            <legend className="text-[11px] uppercase tracking-wider text-slate-500 mb-3">Content & Notes</legend>
+            <div className="space-y-3">
+              <FormField label="Content source">
+                <input className="input w-full" placeholder="e.g. Client sends raw footage via Google Drive"
+                  value={form.content_source} onChange={e => set('content_source', e.target.value)} />
+              </FormField>
+              <FormField label="Action needed">
+                <input className="input w-full" placeholder="Initial action items for this client"
+                  value={form.action_needed} onChange={e => set('action_needed', e.target.value)} />
+              </FormField>
+              <FormField label="Notes / reason">
+                <textarea className="input w-full h-16" placeholder="Any additional context…"
+                  value={form.reason} onChange={e => set('reason', e.target.value)} />
+              </FormField>
+            </div>
+          </fieldset>
+        </div>
+
+        <div className="sticky bottom-0 bg-ink-900/95 backdrop-blur border-t border-ink-800 px-6 py-4 flex items-center justify-end gap-3">
+          <button type="button" onClick={onClose} className="btn btn-sm">Cancel</button>
+          <button type="submit" disabled={saving || !form.name.trim()} className="btn btn-primary btn-sm px-6">
+            {saving ? 'Adding…' : 'Add Client'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function FormField({ label, required, children }) {
+  return (
+    <label className="block">
+      <span className="text-xs text-slate-400 mb-1 block">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+/* ─── Table components ─── */
 
 function Chip({ label, active, onClick }) {
   return <button onClick={onClick} className={`chip ${active ? 'chip-active' : ''}`}>{label}</button>;
