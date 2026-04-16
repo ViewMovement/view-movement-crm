@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api.js';
-import { Empty, SectionHeader, Skeleton, StatusDot } from '../components/primitives.jsx';
+import { Empty, SectionHeader, Skeleton, StatusDot, TabIntro } from '../components/primitives.jsx';
 import ClientDetailDrawer from '../components/ClientDetailDrawer.jsx';
 import { fmtDate, touchpointLabel } from '../lib/format.js';
 
@@ -42,6 +42,9 @@ export default function Activity() {
 
   return (
     <>
+      <TabIntro id="activity" title="What is this?">
+        The audit log. Every touchpoint across all clients in reverse-chronological order, grouped by day — Looms sent, calls offered, calls done, notes, status changes, system events. Filter by type up top. Use this to answer "when did I last touch X?" or "what happened yesterday?"
+      </TabIntro>
       <SectionHeader
         title="Activity"
         subtitle={`${items.length} touchpoints · last 300 across all clients`}

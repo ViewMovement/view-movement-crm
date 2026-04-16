@@ -47,7 +47,7 @@ router.get('/triage', async (_req, res) => {
       supabase.from('clients').select('*'),
       supabase.from('timers').select('*'),
       supabase.from('situation_flags').select('*').is('resolved_at', null),
-      supabase.from('touchpoints').select('client_id, created_at, type').gte('created_at', addDays(now, -2).toISOString()).order('created_at', { ascending: false })
+      supabase.from('touchpoints').select('client_id, created_at, type, content').gte('created_at', addDays(now, -2).toISOString()).order('created_at', { ascending: false })
     ]);
 
     const timersByClient = {};
@@ -65,7 +65,11 @@ router.get('/triage', async (_req, res) => {
     // Phase 2: Client channel sweep - grouped by cohort, with overdue/due timers
     const sweep = { new: [], active_happy: [], active_hands_off: [], cancelling: [] };
     // Phase 4: Monitor - recent activity in last 2 days
-    const monitor = (recentTps || []).slice(0, 40);
+    const clientNameById = Object.fromEntries((clients || []).map(c => [c.id, c.name]));
+    const monitor = (recentTps || []).slice(0, 40).map(t => ({
+      ...t,
+      client_name: clientNameById[t.client_id] || 'Unknown'
+    }));
 
     for (const c of clients || []) {
       const cTimers = timersByClient[c.id] || [];

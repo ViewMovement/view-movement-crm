@@ -25,28 +25,40 @@ function send(res, filename, text) {
 }
 
 router.get('/clients.csv', async (_req, res) => {
-  const { data } = await supabase.from('clients').select('*').order('name');
-  const cols = ['id','name','email','status','cohort','package','billing_date','start_date','contractor_email','created_at','updated_at'];
-  send(res, 'clients.csv', csv(data || [], cols));
+  try {
+    const { data, error } = await supabase.from('clients').select('*').order('name');
+    if (error) throw error;
+    const cols = ['id','name','email','status','cohort','package','billing_date','onboarding_call_completed','created_at','updated_at'];
+    send(res, 'clients.csv', csv(data || [], cols));
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.get('/touchpoints.csv', async (_req, res) => {
-  const since = addDays(new Date(), -90).toISOString();
-  const { data } = await supabase.from('touchpoints').select('*').gte('created_at', since).order('created_at', { ascending: false });
-  const cols = ['id','client_id','type','summary','created_at'];
-  send(res, 'touchpoints_90d.csv', csv(data || [], cols));
+  try {
+    const since = addDays(new Date(), -90).toISOString();
+    const { data, error } = await supabase.from('touchpoints').select('*').gte('created_at', since).order('created_at', { ascending: false });
+    if (error) throw error;
+    const cols = ['id','client_id','type','content','created_at'];
+    send(res, 'touchpoints_90d.csv', csv(data || [], cols));
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.get('/flags.csv', async (_req, res) => {
-  const { data } = await supabase.from('situation_flags').select('*').order('created_at', { ascending: false });
-  const cols = ['id','client_id','type','note','created_at','resolved_at'];
-  send(res, 'flags.csv', csv(data || [], cols));
+  try {
+    const { data, error } = await supabase.from('situation_flags').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+    const cols = ['id','client_id','type','detail','created_at','resolved_at'];
+    send(res, 'flags.csv', csv(data || [], cols));
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.get('/save-plans.csv', async (_req, res) => {
-  const { data } = await supabase.from('save_plans').select('*').order('created_at', { ascending: false });
-  const cols = ['id','client_id','status','reason','proposal','created_at','updated_at'];
-  send(res, 'save_plans.csv', csv(data || [], cols));
+  try {
+    const { data, error } = await supabase.from('save_plans').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+    const cols = ['id','client_id','status','proposal','outcome','created_at','updated_at'];
+    send(res, 'save_plans.csv', csv(data || [], cols));
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 export default router;

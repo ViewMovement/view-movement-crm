@@ -22,7 +22,7 @@ export default function SlackPulse() {
     setScanning(true);
     try {
       const r = await api.slackRunNow();
-      show?.({ message: `Scan complete · ${r.result?.items_saved ?? 0} items · ${r.result?.channels_scanned ?? 0} channels` });
+      show?.({ message: `Scan complete · ${r.result?.inserted ?? 0} items · ${r.result?.scanned ?? 0} channels` });
       await load();
     } catch (e) {
       show?.({ message: 'Scan failed: ' + e.message, tone: 'error' });

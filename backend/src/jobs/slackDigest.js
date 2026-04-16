@@ -13,23 +13,8 @@ const AUTO_JOIN = (process.env.SLACK_AUTO_JOIN || 'true') !== 'false';
 const MSGS_PER_CHANNEL = Number(process.env.SLACK_MSGS_PER_CHANNEL || 8);
 const MAX_DASHBOARD_ITEMS = Number(process.env.SLACK_MAX_DASHBOARD_ITEMS || 30);
 
-// Team members (lowercased names or Slack user IDs) — messages from these users count as "our team responded"
-function teamMemberSet() {
-  const raw = process.env.SLACK_TEAM_MEMBERS || '';
-  return new Set(
-    raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
-  );
-}
-function isTeamMember(sender_name, sender_id, teamSet) {
-  if (!teamSet.size) return false;
-  const n = (sender_name || '').toLowerCase();
-  const id = (sender_id || '').toLowerCase();
-  if (teamSet.has(id)) return true;
-  if (teamSet.has(n)) return true;
-  // Also match first name / "first last" fragment
-  for (const t of teamSet) if (n.includes(t)) return true;
-  return false;
-}
+// Team-vs-client inference now lives in the AI classifier prompt
+// (see classifier.js). No env-var allowlist.
 
 let lastRunDate = null;
 

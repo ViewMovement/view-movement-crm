@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 import { useToast } from '../lib/toast.jsx';
 import ClientDetailDrawer from '../components/ClientDetailDrawer.jsx';
-import { SectionHeader, Skeleton, StatusDot, Empty } from '../components/primitives.jsx';
+import { SectionHeader, Skeleton, StatusDot, Empty, TabIntro } from '../components/primitives.jsx';
 
 export default function Billing() {
   const [state, setState] = useState(null);
@@ -23,6 +23,9 @@ export default function Billing() {
 
   return (
     <>
+      <TabIntro id="billing" title="What is this?">
+        The billing-day check. Clients bill on the <b>1st</b> or the <b>14th</b> — on those days this tab auto-rolls to today's cohort. Work down the list in Stripe and mark each one <span className="text-emerald-300">Verified</span>, <span className="text-rose-300">Failed</span>, or leave Pending. Failed ones auto-flag into Triage. Off-cycle days show the upcoming roster as a preview.
+      </TabIntro>
       <SectionHeader
         title={`Billing · ${billing_day}${suffix(billing_day)}`}
         subtitle={is_check_day

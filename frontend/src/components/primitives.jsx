@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 const STATUS_META = {
   green:   { label: 'Healthy', dot: 'bg-emerald-400', ring: 'border-l-emerald-500' },
   yellow:  { label: 'Watch',   dot: 'bg-amber-400',   ring: 'border-l-amber-500' },
@@ -46,6 +48,29 @@ export function SectionHeader({ title, subtitle, right }) {
         {subtitle && <div className="text-sm text-slate-400 mt-0.5">{subtitle}</div>}
       </div>
       {right}
+    </div>
+  );
+}
+
+// Tiny explainer banner shown at the top of each main tab. Describes what the
+// tab is and how to work it. Collapsible via localStorage so it only nags once.
+export function TabIntro({ id, title, children }) {
+  const [hidden, setHidden] = useState(() => {
+    try { return localStorage.getItem(`tabintro:${id}`) === 'hidden'; } catch { return false; }
+  });
+  if (hidden) return null;
+  return (
+    <div className="mb-5 rounded-lg border border-ink-800 bg-ink-900/40 px-4 py-3 text-sm text-slate-300 flex items-start gap-3">
+      <div className="flex-1">
+        <div className="text-[11px] uppercase tracking-wider text-slate-500 mb-1">{title}</div>
+        <div className="text-slate-300 leading-relaxed">{children}</div>
+      </div>
+      <button
+        onClick={() => { try { localStorage.setItem(`tabintro:${id}`, 'hidden'); } catch {} setHidden(true); }}
+        className="text-xs text-slate-500 hover:text-slate-300 shrink-0"
+        title="Dismiss this explainer">
+        Got it ✕
+      </button>
     </div>
   );
 }

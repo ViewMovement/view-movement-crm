@@ -62,7 +62,7 @@ For each message return:
 Return ONLY a JSON array, same length and order as input. Each object: { "urgency", "category", "summary", "suggested_action" }.
 
 Messages (ordered oldest→newest within each channel):
-${messages.map((m, i) => `[${i}] #${m.channel_name} | ${m.sender_name || 'unknown'} (${m.from_team ? 'team' : 'client'}): ${summarize(m.text || '')}`).join('\n')}`;
+${messages.map((m, i) => `[${i}] #${m.channel_name} | ${m.sender_name || 'unknown'}: ${summarize(m.text || '')}`).join('\n')}`;
 
   try {
     const res = await fetch(ANTHROPIC_URL, {

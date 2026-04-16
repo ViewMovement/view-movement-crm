@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useData } from '../lib/data.jsx';
 import ClientDetailDrawer from '../components/ClientDetailDrawer.jsx';
-import { Empty, SectionHeader, Skeleton, StatusDot, statusMeta } from '../components/primitives.jsx';
+import { Empty, SectionHeader, Skeleton, StatusDot, statusMeta, TabIntro } from '../components/primitives.jsx';
 import { fmtDate } from '../lib/format.js';
 
 export default function Pipeline() {
@@ -24,6 +24,9 @@ export default function Pipeline() {
 
   return (
     <>
+      <TabIntro id="pipeline" title="What is this?">
+        The flow in and out. <b>New & Onboarding</b> is every client whose onboarding isn't finished yet, or who was added in the last 14 days — Typeform signups land here automatically. <b>Churned</b> is the recently cancelled, newest first. Use this tab to make sure new folks get activated and to see who rolled off lately.
+      </TabIntro>
       <SectionHeader
         title="Pipeline"
         subtitle="New onboardings from Typeform and recently churned clients."

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useData } from '../lib/data.jsx';
 import ClientDetailDrawer from '../components/ClientDetailDrawer.jsx';
-import { Empty, SectionHeader, Skeleton, statusMeta, StatusDot } from '../components/primitives.jsx';
+import { Empty, SectionHeader, Skeleton, statusMeta, StatusDot, TabIntro } from '../components/primitives.jsx';
 import { fmtRelative } from '../lib/format.js';
 
 const STATUS_ORDER = { churned: 0, red: 1, yellow: 2, green: 3 };
@@ -52,6 +52,9 @@ export default function Clients() {
 
   return (
     <>
+      <TabIntro id="clients" title="What is this?">
+        Your full client roster. Filter by health (<span className="text-emerald-300">Healthy</span> / <span className="text-amber-300">Watch</span> / <span className="text-rose-300">At Risk</span> / Churned), search by name or email, and sort by status, recency, or next billing date. Click a row to open the detail drawer where you can take actions, add notes, change status, and see every touchpoint.
+      </TabIntro>
       <SectionHeader
         title="Clients"
         subtitle={`${counts.all} total · ${counts.green} healthy · ${counts.yellow} watch · ${counts.red} at risk · ${counts.churned} churned`}

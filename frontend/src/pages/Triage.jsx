@@ -1,8 +1,17 @@
 import { useMemo, useState } from 'react';
 import { useData } from '../lib/data.jsx';
 import ClientDetailDrawer from '../components/ClientDetailDrawer.jsx';
-import { Empty, SectionHeader, Skeleton, StatusDot } from '../components/primitives.jsx';
+import { Empty, SectionHeader, Skeleton, StatusDot, TabIntro } from '../components/primitives.jsx';
 import { fmtRelative } from '../lib/format.js';
+
+const TYPE_LABEL = {
+  loom_sent: 'Loom sent',
+  call_offered: 'Call offered',
+  call_completed: 'Call completed',
+  note: 'Note added',
+  status_change: 'Status changed',
+  system: 'System event'
+};
 
 const COHORT_META = {
   new:              { label: 'New (onboarding)',     hint: 'First 30 days — tight cadence.' },
@@ -25,6 +34,9 @@ export default function Triage() {
 
   return (
     <>
+      <TabIntro id="triage" title="What is this?">
+        Your daily "what needs attention right now" queue. <b>Phase 1 — Urgent</b> is red-line stuff (failed payments, critical flags, red-cohort clients overdue). Handle these first. <b>Phase 2 — Sweep</b> is everything else aging out, grouped by cohort. <b>Phase 3 — Recent activity</b> is a passive feed of the last 48 hours so nothing slips by. Click any client to open the full detail drawer.
+      </TabIntro>
       <SectionHeader
         title="Triage"
         subtitle={urgent.length
@@ -68,8 +80,10 @@ export default function Triage() {
               {monitor.slice(0, 25).map((t, i) => (
                 <li key={i} className="pl-4 relative text-sm">
                   <span className="absolute -left-[5px] top-2 h-2 w-2 rounded-full bg-ink-600 ring-4 ring-ink-950" />
-                  <span className="text-slate-400 tabular-nums text-xs mr-3">{fmtRelative(t.created_at)}</span>
-                  <span className="text-slate-300">{t.type.replace(/_/g, ' ')}</span>
+                  <span className="text-slate-500 tabular-nums text-xs mr-3 inline-block w-16">{fmtRelative(t.created_at)}</span>
+                  <span className="text-slate-200 font-medium mr-2">{t.client_name || 'Unknown'}</span>
+                  <span className="text-slate-400">· {TYPE_LABEL[t.type] || t.type.replace(/_/g, ' ')}</span>
+                  {t.content && <span className="text-slate-500 ml-2">— {String(t.content).slice(0, 80)}</span>}
                 </li>
               ))}
             </ol>
