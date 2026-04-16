@@ -21,8 +21,16 @@ import Dashboard from './pages/Dashboard.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import ClientProfile from './pages/ClientProfile.jsx';
 import { AuthProvider, RequireAuth } from './lib/auth.jsx';
+import { RoleProvider, useRole } from './lib/role.jsx';
 import { DataProvider } from './lib/data.jsx';
 import { ToastProvider } from './lib/toast.jsx';
+
+function RequireFinancial({ children }) {
+  const { canSeeFinancials, loading } = useRole();
+  if (loading) return null;
+  if (!canSeeFinancials) return <Navigate to="/" replace />;
+  return children;
+}
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -34,25 +42,29 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/login" element={<Login />} />
             <Route element={
               <RequireAuth>
+                <RoleProvider>
                 <DataProvider>
                   <App />
                 </DataProvider>
+                </RoleProvider>
               </RequireAuth>
             }>
+              {/* Ops-visible routes */}
               <Route path="/" element={<DayFlow />} />
               <Route path="/board" element={<Triage />} />
               <Route path="/clients" element={<Clients />} />
               <Route path="/clients/:id" element={<ClientProfile />} />
               <Route path="/pipeline" element={<Pipeline />} />
-              <Route path="/billing" element={<Billing />} />
               <Route path="/activity" element={<Activity />} />
-              <Route path="/save-queue" element={<SaveQueue />} />
-              <Route path="/flags" element={<Flags />} />
-              <Route path="/digest" element={<Digest />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/reports" element={<Reports />} />
-              <Route path="/settings" element={<SettingsPage />} />
               <Route path="/slack-pulse" element={<SlackPulse />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              {/* Financial/retention routes — admin + retention only */}
+              <Route path="/billing" element={<RequireFinancial><Billing /></RequireFinancial>} />
+              <Route path="/save-queue" element={<RequireFinancial><SaveQueue /></RequireFinancial>} />
+              <Route path="/flags" element={<RequireFinancial><Flags /></RequireFinancial>} />
+              <Route path="/digest" element={<RequireFinancial><Digest /></RequireFinancial>} />
+              <Route path="/dashboard" element={<RequireFinancial><Dashboard /></RequireFinancial>} />
+              <Route path="/reports" element={<RequireFinancial><Reports /></RequireFinancial>} />
               <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>

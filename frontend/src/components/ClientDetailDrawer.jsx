@@ -7,6 +7,7 @@ import { statusMeta, StatusDot, Skeleton } from './primitives.jsx';
 import { fmtDate, fmtRelative, touchpointLabel, fmtMRR } from '../lib/format.js';
 import HealthRing from './HealthRing.jsx';
 import Sparkline from './Sparkline.jsx';
+import { useRole } from '../lib/role.jsx';
 
 const SITUATION_TYPES = [
   { key: 'missed_posting',        label: 'Missed posting' },
@@ -30,6 +31,7 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
   const [health, setHealth] = useState(null);
   const { refresh } = useData();
   const { show } = useToast();
+  const { canSeeFinancials } = useRole();
 
   const load = useCallback(async () => {
     if (!clientId) return;
@@ -164,21 +166,25 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
                 </select>
               } />
               <MetaCell label="Package" value={client.package ? `${client.package} reels` : '—'} />
-              <MetaCell label="Billing" value={
-                <EditableNumber
-                  value={client.billing_date}
-                  display={client.billing_date
-                    ? `${client.billing_date}${suffix(client.billing_date)} (${client.days_until_billing}d)`
-                    : '—'}
-                  placeholder="Day (1-31)"
-                  min={1} max={31}
-                  onSave={v => saveField('billing_date', v ? Number(v) : null)} />
-              } />
-              <MetaCell label="MRR" value={
-                <EditableMRR
-                  value={client.mrr}
-                  onSave={v => saveField('mrr', v ? Number(v) : null)} />
-              } />
+              {canSeeFinancials && (
+                <MetaCell label="Billing" value={
+                  <EditableNumber
+                    value={client.billing_date}
+                    display={client.billing_date
+                      ? `${client.billing_date}${suffix(client.billing_date)} (${client.days_until_billing}d)`
+                      : '—'}
+                    placeholder="Day (1-31)"
+                    min={1} max={31}
+                    onSave={v => saveField('billing_date', v ? Number(v) : null)} />
+                } />
+              )}
+              {canSeeFinancials && (
+                <MetaCell label="MRR" value={
+                  <EditableMRR
+                    value={client.mrr}
+                    onSave={v => saveField('mrr', v ? Number(v) : null)} />
+                } />
+              )}
               <MetaCell label="Source" value={client.content_source || '—'} />
               <MetaCell label="Cohort" value={
                 <select value={client.cohort || ''} onChange={e => setCohort(e.target.value)}

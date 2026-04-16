@@ -5,6 +5,7 @@ import { useToast } from '../lib/toast.jsx';
 import ClientDetailDrawer from '../components/ClientDetailDrawer.jsx';
 import { Empty, SectionHeader, Skeleton, StatusDot, TabIntro } from '../components/primitives.jsx';
 import { fmtRelative, fmtMRR } from '../lib/format.js';
+import { useRole } from '../lib/role.jsx';
 
 const TYPE_LABEL = {
   loom_sent: 'Loom sent',
@@ -24,6 +25,7 @@ const URGENCY_BADGE = {
 export default function Triage() {
   const { triage, loading, refresh } = useData();
   const { show } = useToast();
+  const { canSeeFinancials } = useRole();
   const [openId, setOpenId] = useState(null);
 
   const monitor = triage?.monitor || [];
@@ -94,7 +96,7 @@ export default function Triage() {
                             Step {o.completed}/{o.total} complete
                           </div>
                         </div>
-                        {o.client.mrr ? <span className="text-xs tabular-nums text-emerald-300/80 font-medium shrink-0">${fmtMRR(o.client.mrr, { compact: true })}</span> : null}
+                        {canSeeFinancials && o.client.mrr ? <span className="text-xs tabular-nums text-emerald-300/80 font-medium shrink-0">${fmtMRR(o.client.mrr, { compact: true })}</span> : null}
                         <span className="text-xs text-slate-400">→</span>
                       </button>
                     ))}
@@ -221,6 +223,7 @@ function Phase({ number, title, subtitle, children }) {
 }
 
 function UrgentRow({ row, onOpen }) {
+  const { canSeeFinancials } = useRole();
   const reasonLabel = {
     failed_payment: 'Failed payment',
     missed_posting: 'Missed posting',
@@ -236,13 +239,14 @@ function UrgentRow({ row, onOpen }) {
         <div className="font-medium truncate">{row.client.name}</div>
         <div className="text-xs text-rose-300 mt-0.5">⚑ {reasonLabel}{row.flags?.length > 1 ? ` +${row.flags.length - 1} more` : ''}</div>
       </div>
-      {row.client.mrr ? <span className="text-xs tabular-nums text-rose-300/80 font-medium shrink-0">{fmtMRR(row.client.mrr, { compact: true })}</span> : null}
+      {canSeeFinancials && row.client.mrr ? <span className="text-xs tabular-nums text-rose-300/80 font-medium shrink-0">{fmtMRR(row.client.mrr, { compact: true })}</span> : null}
       <span className="text-xs text-slate-400">→</span>
     </button>
   );
 }
 
 function RetentionRow({ item, onOpen, onAction }) {
+  const { canSeeFinancials } = useRole();
   const isLoom = item.action_type === 'loom';
   const borderColor = item.overdue ? 'border-amber-500/30 bg-amber-500/5' : 'border-ink-700 bg-ink-900/40';
   const hint = item.overdue
@@ -260,7 +264,7 @@ function RetentionRow({ item, onOpen, onAction }) {
             <span className={`ml-2 ${item.overdue ? 'text-amber-300' : 'text-slate-500'}`}>{hint}</span>
           </div>
         </div>
-        {item.client.mrr ? <span className="text-[10px] tabular-nums text-slate-500 shrink-0">{fmtMRR(item.client.mrr, { compact: true })}</span> : null}
+        {canSeeFinancials && item.client.mrr ? <span className="text-[10px] tabular-nums text-slate-500 shrink-0">{fmtMRR(item.client.mrr, { compact: true })}</span> : null}
       </button>
       <button onClick={onAction}
         className="btn btn-sm btn-primary shrink-0 text-xs px-3">

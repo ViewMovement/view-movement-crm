@@ -8,6 +8,7 @@ import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import { Skeleton, StatusDot } from '../components/primitives.jsx';
 import KpiStrip from '../components/KpiStrip.jsx';
 import { fmtRelative, fmtMRR } from '../lib/format.js';
+import { useRole } from '../lib/role.jsx';
 
 const URGENCY_BADGE = {
   urgent:   { bg: 'bg-rose-500/15 text-rose-300', label: 'Urgent' },
@@ -32,6 +33,7 @@ export default function DayFlow() {
 
   const { greeting, ops_queue, retention_queue, pulse_pressing, progress, onboarding_heroes, billing, routine, counts } = day;
   const userFirst = (day.user_email || '').split('@')[0].split('.')[0];
+  const { canSeeFinancials } = useRole();
 
   const retentionDue = (retention_queue || []).filter(r => !r.done_today);
   const retentionDone = (retention_queue || []).filter(r => r.done_today);
@@ -156,7 +158,7 @@ export default function DayFlow() {
                         <div className="font-medium text-slate-100 truncate">{item.next_action.label}</div>
                         <div className="text-xs text-rose-300/70 mt-0.5">{item.next_action.hint}{item.flags > 1 ? ` · ⚑${item.flags}` : ''}</div>
                       </div>
-                      {item.client.mrr ? <span className="text-xs tabular-nums text-rose-300/60 shrink-0">${fmtMRR(item.client.mrr, { compact: true })}</span> : null}
+                      {canSeeFinancials && item.client.mrr ? <span className="text-xs tabular-nums text-rose-300/60 shrink-0">${fmtMRR(item.client.mrr, { compact: true })}</span> : null}
                       <span className="text-xs text-slate-400">→</span>
                     </button>
                   ))}
@@ -281,6 +283,7 @@ export default function DayFlow() {
 }
 
 function RetentionRow({ item, onOpen, onAction, onSnooze }) {
+  const { canSeeFinancials } = useRole();
   const isLoom = item.action_type === 'loom';
   const borderColor = item.overdue ? 'border-amber-500/30 bg-amber-500/5' : 'border-ink-700 bg-ink-900/40';
   return (
@@ -294,7 +297,7 @@ function RetentionRow({ item, onOpen, onAction, onSnooze }) {
             <span className={`ml-2 ${item.overdue ? 'text-amber-300' : 'text-slate-500'}`}>{item.next_action.hint}</span>
           </div>
         </div>
-        {item.client.mrr ? <span className="text-[10px] tabular-nums text-slate-500 shrink-0">${fmtMRR(item.client.mrr, { compact: true })}</span> : null}
+        {canSeeFinancials && item.client.mrr ? <span className="text-[10px] tabular-nums text-slate-500 shrink-0">${fmtMRR(item.client.mrr, { compact: true })}</span> : null}
       </button>
       <select defaultValue="" onChange={e => { if (e.target.value) { onSnooze(Number(e.target.value)); e.target.value=''; } }}
         className="bg-ink-800 border border-ink-700 rounded-md text-xs px-2 py-1.5 text-slate-300 shrink-0">

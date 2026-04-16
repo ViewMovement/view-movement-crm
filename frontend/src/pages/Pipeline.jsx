@@ -3,10 +3,12 @@ import { useData } from '../lib/data.jsx';
 import ClientDetailDrawer from '../components/ClientDetailDrawer.jsx';
 import { Empty, SectionHeader, Skeleton, StatusDot, statusMeta, TabIntro } from '../components/primitives.jsx';
 import { fmtDate, fmtMRR, sumMRR } from '../lib/format.js';
+import { useRole } from '../lib/role.jsx';
 
 export default function Pipeline() {
   const { clients, loading } = useData();
   const [openId, setOpenId] = useState(null);
+  const { canSeeFinancials } = useRole();
 
   const { onboarding, active, churned } = useMemo(() => {
     const cutoff = Date.now() - 14 * 86400000;
@@ -42,7 +44,7 @@ export default function Pipeline() {
         <Column
           title="New & Onboarding"
           count={onboarding.length}
-          mrr={sumMRR(onboarding)}
+          mrr={canSeeFinancials ? sumMRR(onboarding) : null}
           accent="emerald"
           empty="Nobody new. New signups land here automatically from Typeform.">
           {onboarding.map(c => (
@@ -54,7 +56,7 @@ export default function Pipeline() {
         <Column
           title="Active"
           count={active.length}
-          mrr={sumMRR(active)}
+          mrr={canSeeFinancials ? sumMRR(active) : null}
           accent="blue"
           empty="No active clients yet.">
           {active.map(c => (
@@ -66,7 +68,7 @@ export default function Pipeline() {
         <Column
           title="Churned"
           count={churned.length}
-          mrr={sumMRR(churned)}
+          mrr={canSeeFinancials ? sumMRR(churned) : null}
           accent="slate"
           empty="No churn to show. That's the dream.">
           {churned.map(c => (
@@ -104,6 +106,7 @@ function Column({ title, count, mrr, accent, empty, children }) {
 
 function Card({ client, metaLabel, onOpen }) {
   const sm = statusMeta(client.status);
+  const { canSeeFinancials } = useRole();
   return (
     <div onClick={onOpen}
          className="card p-4 cursor-pointer hover:bg-ink-800 transition flex items-center gap-3">
@@ -113,7 +116,7 @@ function Card({ client, metaLabel, onOpen }) {
         <div className="text-xs text-slate-500 truncate">{metaLabel}</div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        {client.mrr ? <span className="text-[10px] tabular-nums text-slate-500">{fmtMRR(client.mrr, { compact: true })}</span> : null}
+        {canSeeFinancials && client.mrr ? <span className="text-[10px] tabular-nums text-slate-500">{fmtMRR(client.mrr, { compact: true })}</span> : null}
         <span className={`text-[11px] tracking-wide ${sm.cls || 'text-slate-500'}`}>{sm.label}</span>
       </div>
     </div>

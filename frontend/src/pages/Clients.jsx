@@ -6,12 +6,14 @@ import { useToast } from '../lib/toast.jsx';
 import ClientDetailDrawer from '../components/ClientDetailDrawer.jsx';
 import { Empty, SectionHeader, Skeleton, statusMeta, StatusDot, TabIntro } from '../components/primitives.jsx';
 import { fmtRelative, fmtMRR } from '../lib/format.js';
+import { useRole } from '../lib/role.jsx';
 
 const STATUS_ORDER = { churned: 0, red: 1, yellow: 2, green: 3 };
 
 export default function Clients() {
   const { clients, loading, refresh } = useData();
   const { show } = useToast();
+  const { canSeeFinancials } = useRole();
   const [params, setParams] = useSearchParams();
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
@@ -136,6 +138,7 @@ const COHORTS = [
 ];
 
 function AddClientModal({ onClose, onSave }) {
+  const { canSeeFinancials } = useRole();
   const [form, setForm] = useState({
     name: '', email: '', company: '',
     package: '12', billing_date: '', mrr: '',
@@ -207,17 +210,19 @@ function AddClientModal({ onClose, onSave }) {
           {/* Package & billing */}
           <fieldset>
             <legend className="text-[11px] uppercase tracking-wider text-slate-500 mb-3">Package & Billing</legend>
-            <div className="grid grid-cols-3 gap-3">
+            <div className={`grid ${canSeeFinancials ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
               <FormField label="Package (reels/mo)">
                 <select className="input w-full" value={form.package} onChange={e => set('package', e.target.value)}>
                   {PACKAGES.map(p => <option key={p} value={p}>{p} reels</option>)}
                   <option value="custom">Custom</option>
                 </select>
               </FormField>
-              <FormField label="MRR ($)">
-                <input className="input w-full" type="number" min="0" step="100" placeholder="3300"
-                  value={form.mrr} onChange={e => set('mrr', e.target.value)} />
-              </FormField>
+              {canSeeFinancials && (
+                <FormField label="MRR ($)">
+                  <input className="input w-full" type="number" min="0" step="100" placeholder="3300"
+                    value={form.mrr} onChange={e => set('mrr', e.target.value)} />
+                </FormField>
+              )}
               <FormField label="Billing day (1-31)">
                 <input className="input w-full" type="number" min="1" max="31" placeholder="15"
                   value={form.billing_date} onChange={e => set('billing_date', e.target.value)} />
@@ -309,6 +314,7 @@ function ord(n) {
 function Row({ client, onOpen }) {
   const loom = client.timers?.loom;
   const call = client.timers?.call_offer;
+  const { canSeeFinancials } = useRole();
   return (
     <div onClick={onOpen}
          className="grid grid-cols-12 gap-3 px-4 py-3 hover:bg-ink-800/60 cursor-pointer items-center text-sm transition">
@@ -318,7 +324,7 @@ function Row({ client, onOpen }) {
           <span className="font-medium truncate">{client.name}</span>
         </div>
         <div className="text-xs text-slate-500 truncate">
-          {client.mrr ? <span className="text-emerald-400/80 font-medium tabular-nums mr-2">{fmtMRR(client.mrr, { compact: true })}/mo</span> : null}
+          {canSeeFinancials && client.mrr ? <span className="text-emerald-400/80 font-medium tabular-nums mr-2">{fmtMRR(client.mrr, { compact: true })}/mo</span> : null}
           <span>{client.email || client.company || '—'}</span>
         </div>
       </div>

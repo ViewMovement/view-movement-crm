@@ -68,5 +68,10 @@ export const api = {
   slackDigest:     ()              => request('/api/slack/digest'),
   slackInactive:   ()              => request('/api/slack/channels/inactive'),
   slackAsk:        (question, deep=false, channel=null) =>
-                    request('/api/slack/ask', { method: 'POST', body: JSON.stringify({ question, deep, channel }) })
+                    request('/api/slack/ask', { method: 'POST', body: JSON.stringify({ question, deep, channel }) }),
+  // Roles
+  myRole:          ()              => request('/api/roles/me'),
+  listRoles:       ()              => request('/api/roles'),
+  setRole:         (email, role)   => request(`/api/roles/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ role }) }),
+  deleteRole:      (email)         => request(`/api/roles/${encodeURIComponent(email)}`, { method: 'DELETE' })
 };

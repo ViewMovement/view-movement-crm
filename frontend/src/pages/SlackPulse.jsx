@@ -3,6 +3,7 @@ import { api } from '../lib/api.js';
 import { useToast } from '../lib/toast.jsx';
 import ClientDetailDrawer from '../components/ClientDetailDrawer.jsx';
 import { fmtMRR } from '../lib/format.js';
+import { useRole } from '../lib/role.jsx';
 
 // Fuzzy matcher: normalize to alphanumeric lower then check containment both ways
 function matchChannelToClient(channelName, clients) {
@@ -23,6 +24,7 @@ const URGENCY_META = {
 };
 
 export default function SlackPulse() {
+  const { canSeeFinancials } = useRole();
   const [status, setStatus] = useState(null);
   const [items, setItems] = useState([]);
   const [digest, setDigest] = useState(null);
@@ -170,7 +172,7 @@ export default function SlackPulse() {
                 {linkedClient && (
                   <button onClick={() => setOpenClientId(linkedClient.id)}
                     className="text-[10px] px-2 py-0.5 rounded-full border border-ink-700 bg-ink-900 hover:bg-ink-800 text-emerald-300 transition">
-                    {linkedClient.name} · {fmtMRR(linkedClient.mrr, { compact: true })} →
+                    {linkedClient.name}{canSeeFinancials && linkedClient.mrr ? ` · ${fmtMRR(linkedClient.mrr, { compact: true })}` : ''} →
                   </button>
                 )}
               </div>

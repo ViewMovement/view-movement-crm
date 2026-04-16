@@ -1,6 +1,7 @@
 import { NavLink, Link } from 'react-router-dom';
 import { useAuth } from '../lib/auth.jsx';
 import { useData } from '../lib/data.jsx';
+import { useRole } from '../lib/role.jsx';
 
 const MASTER_SHEET_URL = 'https://docs.google.com/spreadsheets/d/15AvJa6_1Dfe0UTmOjoFLeKHD-GzHuRasUG7ZZ2kYWG0/edit?usp=sharing';
 
@@ -28,6 +29,7 @@ const INSIGHT_ITEMS = [
 export default function Sidebar({ onOpenPalette }) {
   const { user, signOut } = useAuth();
   const { today, clients, triage, flags, savePlans } = useData();
+  const { role, canSeeFinancials, isAdmin } = useRole();
   const urgentCount = triage?.counts?.urgent || today?.length || 0;
   const pipelineCount = (clients || []).filter(c => isNewish(c) || c.status === 'churned').length;
   const openFlags = flags?.length || 0;
@@ -40,6 +42,8 @@ export default function Sidebar({ onOpenPalette }) {
     '/flags': openFlags,
     '/save-queue': openSaves
   };
+
+  const ROLE_LABEL = { admin: 'Admin', retention: 'Retention', ops: 'Ops' };
 
   return (
     <aside className="hidden md:flex w-60 shrink-0 flex-col border-r border-ink-800 bg-ink-900/60 backdrop-blur">
@@ -62,13 +66,21 @@ export default function Sidebar({ onOpenPalette }) {
         <SectionLabel>Ops Manager</SectionLabel>
         {OPS_ITEMS.map(item => <NavItem key={item.to} item={item} badge={badges[item.to]} />)}
 
-        <div className="h-3" />
-        <SectionLabel>Retention</SectionLabel>
-        {RETENTION_ITEMS.map(item => <NavItem key={item.to} item={item} badge={badges[item.to]} />)}
+        {canSeeFinancials && (
+          <>
+            <div className="h-3" />
+            <SectionLabel>Retention</SectionLabel>
+            {RETENTION_ITEMS.map(item => <NavItem key={item.to} item={item} badge={badges[item.to]} />)}
+          </>
+        )}
 
-        <div className="h-3" />
-        <SectionLabel>Insight</SectionLabel>
-        {INSIGHT_ITEMS.map(item => <NavItem key={item.to} item={item} />)}
+        {canSeeFinancials && (
+          <>
+            <div className="h-3" />
+            <SectionLabel>Insight</SectionLabel>
+            {INSIGHT_ITEMS.map(item => <NavItem key={item.to} item={item} />)}
+          </>
+        )}
 
         <div className="h-3" />
         <SectionLabel>External</SectionLabel>
@@ -85,7 +97,10 @@ export default function Sidebar({ onOpenPalette }) {
 
       <div className="px-3 py-3 border-t border-ink-800 text-xs text-slate-500">
         <div className="truncate mb-1">{user?.email}</div>
-        <button onClick={signOut} className="text-slate-400 hover:text-slate-200 transition">Sign out</button>
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] uppercase tracking-wider text-slate-600">{ROLE_LABEL[role] || role}</span>
+          <button onClick={signOut} className="text-slate-400 hover:text-slate-200 transition">Sign out</button>
+        </div>
       </div>
     </aside>
   );
