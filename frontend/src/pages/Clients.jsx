@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useData } from '../lib/data.jsx';
 import ClientDetailDrawer from '../components/ClientDetailDrawer.jsx';
 import { Empty, SectionHeader, Skeleton, statusMeta, StatusDot, TabIntro } from '../components/primitives.jsx';
-import { fmtRelative } from '../lib/format.js';
+import { fmtRelative, fmtMRR } from '../lib/format.js';
 
 const STATUS_ORDER = { churned: 0, red: 1, yellow: 2, green: 3 };
 
@@ -117,7 +117,10 @@ function Row({ client, onOpen }) {
           <StatusDot status={client.status} label={false} />
           <span className="font-medium truncate">{client.name}</span>
         </div>
-        <div className="text-xs text-slate-500 truncate">{client.email || client.company || '—'}</div>
+        <div className="text-xs text-slate-500 truncate">
+          {client.mrr ? <span className="text-emerald-400/80 font-medium tabular-nums mr-2">{fmtMRR(client.mrr, { compact: true })}/mo</span> : null}
+          <span>{client.email || client.company || '—'}</span>
+        </div>
       </div>
       <div className="col-span-2 text-slate-300">{statusMeta(client.status).label}</div>
       <div className={`col-span-2 tabular-nums ${loom?.is_overdue ? 'text-rose-300' : 'text-slate-300'}`}>

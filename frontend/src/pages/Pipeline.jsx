@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useData } from '../lib/data.jsx';
 import ClientDetailDrawer from '../components/ClientDetailDrawer.jsx';
 import { Empty, SectionHeader, Skeleton, StatusDot, statusMeta, TabIntro } from '../components/primitives.jsx';
-import { fmtDate } from '../lib/format.js';
+import { fmtDate, fmtMRR, sumMRR } from '../lib/format.js';
 
 export default function Pipeline() {
   const { clients, loading } = useData();
@@ -36,6 +36,7 @@ export default function Pipeline() {
         <Column
           title="New & Onboarding"
           count={onboarding.length}
+          mrr={sumMRR(onboarding)}
           accent="emerald"
           empty="Nobody new. New signups land here automatically from Typeform.">
           {onboarding.map(c => (
@@ -47,6 +48,7 @@ export default function Pipeline() {
         <Column
           title="Churned"
           count={churned.length}
+          mrr={sumMRR(churned)}
           accent="slate"
           empty="No churn to show. That's the dream.">
           {churned.map(c => (
@@ -62,7 +64,7 @@ export default function Pipeline() {
   );
 }
 
-function Column({ title, count, accent, empty, children }) {
+function Column({ title, count, mrr, accent, empty, children }) {
   const dot = accent === 'emerald' ? 'bg-emerald-400' : 'bg-slate-500';
   return (
     <section>
@@ -71,7 +73,10 @@ function Column({ title, count, accent, empty, children }) {
           <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
           <h3 className="text-sm font-medium tracking-tight">{title}</h3>
         </div>
-        <span className="text-xs text-slate-500 tabular-nums">{count}</span>
+        <div className="flex items-center gap-3">
+          {mrr ? <span className="text-xs font-medium tabular-nums text-slate-400">{fmtMRR(mrr, { compact: true })}/mo</span> : null}
+          <span className="text-xs text-slate-500 tabular-nums">{count}</span>
+        </div>
       </div>
       {count === 0 ? <Empty icon="—" title={empty} /> : (
         <div className="space-y-2">{children}</div>

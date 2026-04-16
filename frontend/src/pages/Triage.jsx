@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useData } from '../lib/data.jsx';
 import ClientDetailDrawer from '../components/ClientDetailDrawer.jsx';
 import { Empty, SectionHeader, Skeleton, StatusDot, TabIntro } from '../components/primitives.jsx';
-import { fmtRelative } from '../lib/format.js';
+import { fmtRelative, fmtMRR } from '../lib/format.js';
 
 const TYPE_LABEL = {
   loom_sent: 'Loom sent',
@@ -125,7 +125,8 @@ function UrgentRow({ row, onOpen }) {
         <div className="font-medium truncate">{row.client.name}</div>
         <div className="text-xs text-rose-300 mt-0.5">⚑ {reasonLabel}{row.flags?.length > 1 ? ` +${row.flags.length - 1} more` : ''}</div>
       </div>
-      <span className="text-xs text-slate-400">Open →</span>
+      {row.client.mrr ? <span className="text-xs tabular-nums text-rose-300/80 font-medium shrink-0">{fmtMRR(row.client.mrr, { compact: true })}</span> : null}
+      <span className="text-xs text-slate-400">→</span>
     </button>
   );
 }
@@ -147,6 +148,7 @@ function CohortColumn({ title, hint, rows, onOpen }) {
               className="w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-ink-800 transition text-left">
               <StatusDot status={r.client.status} label={false} />
               <span className="flex-1 truncate">{r.client.name}</span>
+              {r.client.mrr ? <span className="text-[10px] tabular-nums text-slate-500">{fmtMRR(r.client.mrr, { compact: true })}</span> : null}
               {r.overdue && <span className="text-[10px] text-rose-300">overdue</span>}
               {!r.overdue && r.due_soon && <span className="text-[10px] text-amber-300">soon</span>}
               {r.flags?.length > 0 && <span className="text-[10px] text-amber-400">⚑{r.flags.length}</span>}

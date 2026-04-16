@@ -1,6 +1,20 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { api } from '../lib/api.js';
 import { useToast } from '../lib/toast.jsx';
+import ClientDetailDrawer from '../components/ClientDetailDrawer.jsx';
+import { fmtMRR } from '../lib/format.js';
+
+// Fuzzy matcher: normalize to alphanumeric lower then check containment both ways
+function matchChannelToClient(channelName, clients) {
+  const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const cn = norm(channelName);
+  if (!cn) return null;
+  for (const c of clients) {
+    const nn = norm(c.name);
+    if (nn && (cn.includes(nn) || nn.includes(cn))) return c;
+  }
+  return null;
+}
 
 const URGENCY_META = {
   urgent:   { label: 'Urgent',   color: 'border-rose-500/40 bg-rose-500/5',   chip: 'bg-rose-500/20 text-rose-300',    dot: 'bg-rose-400' },
@@ -16,6 +30,8 @@ export default function SlackPulse() {
   const [filter, setFilter] = useState('unseen');
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
+  const [allClients, setAllClients] = useState([]);
+  const [openClientId, setOpenClientId] = useState(null);
   const { show } = useToast();
 
   async function runScan() {
@@ -39,6 +55,8 @@ export default function SlackPulse() {
         api.slackInactive()
       ]);
       setStatus(s); setItems(p); setDigest(d); setInactive(i);
+      // Also load client list for channel→client matching
+      try { const cs = await api.listClients(); setAllClients(cs); } catch {}
     } catch (e) { show?.({ message: 'Failed to load Slack Pulse: ' + e.message }); }
     finally { setLoading(false); }
   }, [filter, show]);
@@ -61,6 +79,17 @@ export default function SlackPulse() {
   if (!status.slack_configured) {
     return <NotConfigured status={status} />;
   }
+
+  // Build channel→client lookup for linking
+  const channelClientMap = useMemo(() => {
+    const map = {};
+    const channels = new Set(items.map(i => i.channel_name).filter(Boolean));
+    for (const ch of channels) {
+      const match = matchChannelToClient(ch, allClients);
+      if (match) map[ch] = match;
+    }
+    return map;
+  }, [items, allClients]);
 
   const grouped = groupByChannel(items);
   const counts = {
@@ -132,16 +161,28 @@ export default function SlackPulse() {
       {loading ? <div className="text-slate-500">Loading items…</div> :
        items.length === 0 ? <EmptyState filter={filter} /> : (
         <section className="space-y-6">
-          {Object.entries(grouped).map(([channel, msgs]) => (
+          {Object.entries(grouped).map(([channel, msgs]) => {
+            const linkedClient = channelClientMap[channel];
+            return (
             <div key={channel}>
-              <div className="text-[11px] uppercase tracking-wider text-slate-500 mb-2">#{channel}</div>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="text-[11px] uppercase tracking-wider text-slate-500">#{channel}</div>
+                {linkedClient && (
+                  <button onClick={() => setOpenClientId(linkedClient.id)}
+                    className="text-[10px] px-2 py-0.5 rounded-full border border-ink-700 bg-ink-900 hover:bg-ink-800 text-emerald-300 transition">
+                    {linkedClient.name} · {fmtMRR(linkedClient.mrr, { compact: true })} →
+                  </button>
+                )}
+              </div>
               <div className="space-y-2">
                 {msgs.map(m => <PulseCard key={m.id} item={m} onSeen={() => seen(m.id)} />)}
               </div>
             </div>
-          ))}
+          ); })}
         </section>
       )}
+
+      {openClientId && <ClientDetailDrawer clientId={openClientId} onClose={() => setOpenClientId(null)} />}
     </div>
   );
 }
