@@ -357,12 +357,13 @@ router.get('/day', async (req, res) => {
     const today = now.toISOString().slice(0, 10);
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
 
-    const [{ data: clients }, { data: timers }, { data: flags }, { data: todaysTps }, { data: routineRows }] = await Promise.all([
+    const [{ data: clients }, { data: timers }, { data: flags }, { data: todaysTps }, { data: routineRows }, { data: pulseItems }] = await Promise.all([
       supabase.from('clients').select('*').neq('status', 'churned'),
       supabase.from('timers').select('*'),
       supabase.from('situation_flags').select('*').is('resolved_at', null),
       supabase.from('touchpoints').select('client_id,type,created_at').gte('created_at', startOfDay),
-      supabase.from('daily_routine').select('*').eq('user_email', userEmail).eq('routine_date', today).maybeSingle()
+      supabase.from('daily_routine').select('*').eq('user_email', userEmail).eq('routine_date', today).maybeSingle(),
+      supabase.from('slack_pulse_items').select('*, channel:slack_channels(name, slack_channel_id)').is('seen_at', null).in('urgency', ['urgent', 'heads_up']).order('created_at', { ascending: false }).limit(15)
     ]);
 
     // Ensure routine row exists (defensive: tolerates missing table pre-migration)
@@ -381,7 +382,8 @@ router.get('/day', async (req, res) => {
 
     const CRITICAL_FLAGS = new Set(['failed_payment','missed_posting','non_responsive','overdue_batch']);
 
-    const queue = [];
+    const opsQueue = [];          // urgent flags only (no looms/calls)
+    const retentionQueue = [];     // loom/call timer actions
     const onboardingHeroes = [];
 
     for (const c of clients || []) {
@@ -400,11 +402,7 @@ router.get('/day', async (req, res) => {
         }
       }
 
-      // Pick the single most important next_action per client
-      let action = null;
-      let urgency = 0;
-
-      // 1. Critical flags → raise/work flag
+      // Critical flags → ops queue
       const crit = cFlags.find(f => CRITICAL_FLAGS.has(f.type));
       if (crit) {
         const labels = {
@@ -413,54 +411,72 @@ router.get('/day', async (req, res) => {
           non_responsive: `Re-engage ${c.name} (non-responsive 48h+)`,
           overdue_batch: `Unblock overdue batch for ${c.name}`
         };
-        action = { type: 'flag', flag_id: crit.id, flag_type: crit.type, label: labels[crit.type], hint: 'Open playbook' };
-        urgency = 100;
-      }
-      // 2. Overdue loom timer
-      else if (loomTimer && new Date(loomTimer.next_due_at) <= now) {
-        const daysOver = Math.floor((now - new Date(loomTimer.next_due_at)) / 86400000);
-        action = { type: 'send_loom', label: `Send Loom to ${c.name}`, hint: daysOver > 0 ? `${daysOver}d overdue` : 'Due today' };
-        urgency = 60 + Math.min(20, daysOver);
-        if (c.status === 'red') urgency += 15;
-        if (c.cohort === 'cancelling') urgency += 10;
-      }
-      // 3. Overdue call offer
-      else if (callTimer && new Date(callTimer.next_due_at) <= now) {
-        const daysOver = Math.floor((now - new Date(callTimer.next_due_at)) / 86400000);
-        action = { type: 'call_offer', label: `Offer a call to ${c.name}`, hint: daysOver > 0 ? `${daysOver}d overdue` : 'Due today' };
-        urgency = 50 + Math.min(15, daysOver);
-      }
-      // 4. Due soon
-      else if (loomTimer && new Date(loomTimer.next_due_at) <= new Date(now.getTime() + 2 * 86400000)) {
-        const daysLeft = Math.ceil((new Date(loomTimer.next_due_at) - now) / 86400000);
-        action = { type: 'send_loom', label: `Send Loom to ${c.name}`, hint: `Due in ${daysLeft}d — get ahead` };
-        urgency = 30;
+        opsQueue.push({
+          id: `${c.id}:flag`,
+          client: { id: c.id, name: c.name, status: c.status, cohort: c.cohort, company: c.company, mrr: c.mrr },
+          next_action: { type: 'flag', flag_id: crit.id, flag_type: crit.type, label: labels[crit.type], hint: 'Open playbook' },
+          urgency: 100,
+          category: 'urgent',
+          flags: cFlags.length
+        });
       }
 
-      if (!action) continue;
-
-      // Did we already act on this today? (filter out completed items)
+      // Loom/call timers → retention queue (separate from ops)
       const todaysActions = (todaysTps || []).filter(t => t.client_id === c.id);
-      const actedLoomToday = todaysActions.some(t => t.type === 'loom_sent');
-      const actedCallToday = todaysActions.some(t => t.type === 'call_offered' || t.type === 'call_completed');
-      if (action.type === 'send_loom' && actedLoomToday) continue;
-      if (action.type === 'call_offer' && actedCallToday) continue;
+      const loomDoneToday = todaysActions.some(t => t.type === 'loom_sent');
+      const callDoneToday = todaysActions.some(t => t.type === 'call_offered' || t.type === 'call_completed');
 
-      queue.push({
-        id: `${c.id}:${action.type}`,
-        client: { id: c.id, name: c.name, status: c.status, cohort: c.cohort, company: c.company },
-        next_action: action,
-        urgency,
-        category: urgency >= 100 ? 'urgent' : (urgency >= 50 ? 'today' : 'heads_up'),
-        flags: cFlags.length
-      });
+      if (loomTimer) {
+        const loomOverdue = new Date(loomTimer.next_due_at) <= now;
+        const loomDueSoon = !loomOverdue && new Date(loomTimer.next_due_at) <= new Date(now.getTime() + 2 * 86400000);
+        if (loomOverdue || loomDueSoon) {
+          const daysOver = loomOverdue ? Math.floor((now - new Date(loomTimer.next_due_at)) / 86400000) : 0;
+          let urgency = loomOverdue ? 60 + Math.min(20, daysOver) : 30;
+          if (c.status === 'red') urgency += 15;
+          if (c.cohort === 'cancelling') urgency += 10;
+          retentionQueue.push({
+            id: `${c.id}:loom`,
+            client: { id: c.id, name: c.name, status: c.status, cohort: c.cohort, company: c.company, mrr: c.mrr },
+            action_type: 'loom',
+            next_action: { type: 'send_loom', label: `Send Loom to ${c.name}`, hint: loomOverdue ? (daysOver > 0 ? `${daysOver}d overdue` : 'Due today') : `Due soon` },
+            urgency,
+            overdue: loomOverdue,
+            done_today: loomDoneToday,
+            flags: cFlags.length
+          });
+        }
+      }
+      if (callTimer) {
+        const callOverdue = new Date(callTimer.next_due_at) <= now;
+        const callDueSoon = !callOverdue && new Date(callTimer.next_due_at) <= new Date(now.getTime() + 2 * 86400000);
+        if (callOverdue || callDueSoon) {
+          const daysOver = callOverdue ? Math.floor((now - new Date(callTimer.next_due_at)) / 86400000) : 0;
+          let urgency = callOverdue ? 50 + Math.min(15, daysOver) : 25;
+          retentionQueue.push({
+            id: `${c.id}:call`,
+            client: { id: c.id, name: c.name, status: c.status, cohort: c.cohort, company: c.company, mrr: c.mrr },
+            action_type: 'call',
+            next_action: { type: 'call_offer', label: `Offer a call to ${c.name}`, hint: callOverdue ? (daysOver > 0 ? `${daysOver}d overdue` : 'Due today') : 'Due soon' },
+            urgency,
+            overdue: callOverdue,
+            done_today: callDoneToday,
+            flags: cFlags.length
+          });
+        }
+      }
     }
 
-    queue.sort((a, b) => b.urgency - a.urgency);
+    opsQueue.sort((a, b) => b.urgency - a.urgency);
+    retentionQueue.sort((a, b) => {
+      if (a.done_today !== b.done_today) return a.done_today ? 1 : -1;
+      return b.urgency - a.urgency;
+    });
 
-    // Progress: count touchpoints today as "done" + phases completed
+    // Progress
+    const retentionDone = retentionQueue.filter(r => r.done_today).length;
+    const retentionDue = retentionQueue.filter(r => !r.done_today).length;
     const doneToday = (todaysTps || []).filter(t => ['loom_sent','call_offered','call_completed'].includes(t.type)).length;
-    const totalPlanned = doneToday + queue.length;
+    const totalPlanned = doneToday + opsQueue.length + retentionDue;
 
     // Billing pulse
     const dom = now.getDate();
@@ -471,8 +487,10 @@ router.get('/day', async (req, res) => {
       greeting: greetingFor(now),
       user_email: userEmail,
       date: today,
-      queue,
-      progress: { done: doneToday, total: totalPlanned, queued: queue.length, percent: totalPlanned ? Math.round(doneToday * 100 / totalPlanned) : 100 },
+      ops_queue: opsQueue,
+      retention_queue: retentionQueue,
+      pulse_pressing: pulseItems || [],
+      progress: { done: doneToday, total: totalPlanned, queued: opsQueue.length, retention_due: retentionDue, retention_done: retentionDone, percent: totalPlanned ? Math.round(doneToday * 100 / totalPlanned) : 100 },
       onboarding_heroes: onboardingHeroes,
       billing: { is_check_day: isCheckDay, relevant_day: relevantDay },
       routine: {
@@ -482,11 +500,12 @@ router.get('/day', async (req, res) => {
         phase_4_done: !!routine?.phase_4_done_at
       },
       counts: {
-        urgent: queue.filter(q => q.category === 'urgent').length,
-        today: queue.filter(q => q.category === 'today').length,
-        heads_up: queue.filter(q => q.category === 'heads_up').length,
-        open_flags: (flags || []).length,
-        onboarding_active: onboardingHeroes.length
+        urgent: opsQueue.length,
+        pulse: (pulseItems || []).length,
+        onboarding_active: onboardingHeroes.length,
+        retention_due: retentionDue,
+        retention_done: retentionDone,
+        open_flags: (flags || []).length
       }
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
