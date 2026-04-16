@@ -70,37 +70,26 @@ export async function runSlackDigestOnce({ lookbackHours = LOOKBACK_HOURS } = {}
     }
   }
 
-  // 3. Collect new messages from every channel.
-  //    Skip channels whose most recent human message is from our team — conversation is handled.
-  const teamSet = teamMemberSet();
+  // 3. Collect the last N messages from every channel. AI will figure out team vs client.
   const rawItems = [];
-  let scanned = 0, handledSkips = 0;
+  let scanned = 0;
   for (const c of channels) {
     try {
-      // Last N messages per channel (default 8) — ignore lookback for relevance/cost
       const msgs = await channelHistory(c.slack_channel_id, null, MSGS_PER_CHANNEL);
       scanned++;
       if (!msgs.length) continue;
 
-      // Track latest activity
       const latest = Math.max(...msgs.map(m => parseFloat(m.ts) * 1000));
       await supabase.from('slack_channels')
         .update({ last_activity_at: new Date(latest).toISOString() })
         .eq('slack_channel_id', c.slack_channel_id);
 
-      // Slack returns most-recent-first. Find the most recent non-bot human message.
       const humanMsgs = msgs.filter(m => m.text && m.text.length >= 3 && !m.bot_id);
-      if (!humanMsgs.length) continue;
-      const mostRecent = humanMsgs[0];
-      const mostRecentName = await resolveUser(mostRecent.user);
-      if (teamSet.size && isTeamMember(mostRecentName, mostRecent.user, teamSet)) {
-        handledSkips++;
-        continue; // ball is in client's court OR we already replied — don't flag
-      }
-
+      // Slack returns newest-first. Reverse so the prompt reads oldest→newest per channel
+      // (makes "did a team member reply AFTER this?" easy for the AI to reason about).
+      humanMsgs.reverse();
       for (const m of humanMsgs) {
         const sender_name = await resolveUser(m.user);
-        const from_team = isTeamMember(sender_name, m.user, teamSet);
         rawItems.push({
           channel_id: channelRowsById[c.slack_channel_id].id,
           channel_name: c.name,
@@ -108,7 +97,6 @@ export async function runSlackDigestOnce({ lookbackHours = LOOKBACK_HOURS } = {}
           slack_channel_id: c.slack_channel_id,
           sender_name,
           sender_id: m.user || null,
-          from_team,
           text: m.text
         });
       }
@@ -116,7 +104,7 @@ export async function runSlackDigestOnce({ lookbackHours = LOOKBACK_HOURS } = {}
       console.warn(`[slack-digest] skip #${c.name}: ${e.message}`);
     }
   }
-  console.log(`[slack-digest] scanned ${scanned}, skipped ${handledSkips} already-handled, collected ${rawItems.length} raw items`);
+  console.log(`[slack-digest] scanned ${scanned} channels, collected ${rawItems.length} raw items`);
 
   // 4. Classify in batches of 15 to keep prompt sizes reasonable
   const classified = [];

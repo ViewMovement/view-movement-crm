@@ -44,10 +44,14 @@ Additional rules:
 - Scheduling messages are fyi unless a deadline <48h is stated.
 
 TEAM AWARENESS (IMPORTANT):
-- Messages are tagged (team) if they are from a View Movement team member, or (client) if from a client/external.
-- If a message is tagged (team), the team has already responded — that message itself is almost always fyi.
-- If a (client) message is followed in the same channel by any (team) message, the conversation has moved past it → fyi.
-- Only flag urgent/heads_up on the LATEST client-side message when the team has NOT yet replied to it.
+View Movement team members include (but aren't limited to): Ty Hageman, Gabe, Catarina, Staci, Johnny, and any account posting as "View Movement" or tied to view-movement---content. Everyone else in these channels — the people whose name matches the channel slug (e.g. Gary Taubes in #gary-taubes), guests, clients' staff — are CLIENTS.
+You can also infer team vs client from communication patterns: team members speak with operational, internal voice (delivery updates, scheduling, coordinating with "the team"), while clients speak about their own goals, content, needs. When in doubt, infer.
+
+Apply this rule:
+- If the MOST RECENT message in a channel is from a team member, the conversation is handled → every item in that channel is fyi.
+- If a client's message has ALREADY been answered by any team member that came after it, it is fyi.
+- Only flag urgent/heads_up on the latest client-side message when the team has NOT yet replied to it.
+- Team members' own messages are fyi unless they contain something flagging a real external crisis.
 
 For each message return:
 - urgency: "urgent" | "heads_up" | "fyi"
