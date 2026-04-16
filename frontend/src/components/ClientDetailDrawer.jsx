@@ -95,9 +95,17 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
   }
 
   async function saveField(field, value) {
-    await api.updateClient(clientId, { [field]: value || null });
+    const payload = { [field]: value === undefined ? null : value };
+    // For success_definition, also stamp the captured_at timestamp on first save
+    if (field === 'success_definition' && value && !client?.success_definition) {
+      payload.success_definition_captured_at = new Date().toISOString();
+    }
+    if (field === 'success_definition' && value) {
+      payload.success_definition_last_reviewed_at = new Date().toISOString();
+    }
+    await api.updateClient(clientId, payload);
     load(); refresh(true);
-    const labels = { mrr: 'MRR', billing_date: 'Billing date', package: 'Package' };
+    const labels = { mrr: 'MRR', billing_date: 'Billing date', package: 'Package', success_definition: 'Success definition', baseline_metrics: 'Baseline metrics', service_start_date: 'Service start date' };
     show({ message: `${labels[field] || field} updated.` });
   }
 
@@ -198,6 +206,14 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
                 </select>
               } />
             </div>
+
+            {/* Success Definition — pinned at top per SOP */}
+            <SuccessDefinitionBlock
+              client={client}
+              onSaveDefinition={v => saveField('success_definition', v)}
+              onSaveBaseline={v => saveField('baseline_metrics', v)}
+              onSaveServiceStart={v => saveField('service_start_date', v)}
+            />
 
             {/* Health snapshot */}
             {health && (
@@ -422,6 +438,157 @@ function EditableNumber({ value, display, placeholder, min, max, onSave }) {
       <span>{display}</span>
       <span className="text-slate-600 group-hover:text-emerald-400 text-[10px] transition">✎</span>
     </button>
+  );
+}
+
+function SuccessDefinitionBlock({ client, onSaveDefinition, onSaveBaseline, onSaveServiceStart }) {
+  const [editingDef, setEditingDef] = useState(false);
+  const [defDraft, setDefDraft] = useState('');
+  const [editingBaseline, setEditingBaseline] = useState(false);
+  const [baselineDraft, setBaselineDraft] = useState('');
+
+  // Calculate days since creation
+  const daysSinceCreation = client.created_at
+    ? Math.floor((Date.now() - new Date(client.created_at).getTime()) / 86400000)
+    : 0;
+  const pastDay14 = daysSinceCreation > 14;
+  const isEmpty = !client.success_definition;
+  const isWarning = isEmpty && pastDay14 && client.status !== 'churned';
+
+  function openDefEdit() {
+    setDefDraft(client.success_definition || '');
+    setEditingDef(true);
+  }
+  function commitDef() {
+    const trimmed = defDraft.trim();
+    if (trimmed !== (client.success_definition || '')) onSaveDefinition(trimmed || null);
+    setEditingDef(false);
+  }
+
+  function openBaselineEdit() {
+    const current = client.baseline_metrics;
+    setBaselineDraft(typeof current === 'object' && current ? JSON.stringify(current, null, 2) : (current || ''));
+    setEditingBaseline(true);
+  }
+  function commitBaseline() {
+    const trimmed = baselineDraft.trim();
+    if (!trimmed) { onSaveBaseline(null); setEditingBaseline(false); return; }
+    try {
+      const parsed = JSON.parse(trimmed);
+      onSaveBaseline(parsed);
+    } catch {
+      // If not valid JSON, store as plain string wrapped in object
+      onSaveBaseline({ notes: trimmed });
+    }
+    setEditingBaseline(false);
+  }
+
+  const borderColor = isWarning
+    ? 'border-amber-500/40 bg-amber-500/5'
+    : client.success_definition
+      ? 'border-emerald-500/20 bg-emerald-500/5'
+      : 'border-ink-700 bg-ink-800/40';
+
+  return (
+    <div className={`rounded-lg border ${borderColor} p-4 space-y-3`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {isWarning && <span className="text-amber-400 text-sm">⚠</span>}
+          <span className="text-xs uppercase tracking-wide text-slate-500 font-medium">Success Definition</span>
+        </div>
+        {client.success_definition_captured_at && (
+          <span className="text-[10px] text-slate-600 tabular-nums">
+            Captured {fmtDate(client.success_definition_captured_at)}
+          </span>
+        )}
+      </div>
+
+      {isWarning && (
+        <div className="text-xs text-amber-300/80 -mt-1">
+          Day {daysSinceCreation} — success definition should be captured by day 14
+        </div>
+      )}
+
+      {/* Definition field */}
+      {editingDef ? (
+        <div>
+          <textarea
+            autoFocus
+            className="input h-24 text-sm"
+            placeholder="What does success look like for this client? (e.g. 'Post 3x/week on IG and grow to 10K followers in 6 months')"
+            value={defDraft}
+            onChange={e => setDefDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Escape') setEditingDef(false); }}
+          />
+          <div className="flex justify-end gap-2 mt-2">
+            <button className="btn btn-sm text-xs text-slate-400 hover:text-slate-200" onClick={() => setEditingDef(false)}>Cancel</button>
+            <button className="btn btn-primary btn-sm" onClick={commitDef}>Save</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={openDefEdit} className="group w-full text-left">
+          {client.success_definition ? (
+            <div className="text-sm text-slate-200 whitespace-pre-wrap">
+              {client.success_definition}
+              <span className="text-slate-600 group-hover:text-emerald-400 text-[10px] ml-1 transition">✎</span>
+            </div>
+          ) : (
+            <div className="text-sm text-slate-500 italic group-hover:text-slate-300 transition">
+              + Click to define what success looks like for this client…
+            </div>
+          )}
+        </button>
+      )}
+
+      {/* Baseline metrics */}
+      <div className="border-t border-ink-800/60 pt-2">
+        <div className="text-[10px] uppercase tracking-wide text-slate-600 mb-1">Baseline Metrics</div>
+        {editingBaseline ? (
+          <div>
+            <textarea
+              autoFocus
+              className="input h-20 text-xs font-mono"
+              placeholder='e.g. {"followers": 2500, "avg_views": 800, "posting_freq": "1x/week"}'
+              value={baselineDraft}
+              onChange={e => setBaselineDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Escape') setEditingBaseline(false); }}
+            />
+            <div className="flex justify-end gap-2 mt-1">
+              <button className="btn btn-sm text-xs text-slate-400 hover:text-slate-200" onClick={() => setEditingBaseline(false)}>Cancel</button>
+              <button className="btn btn-primary btn-sm" onClick={commitBaseline}>Save</button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={openBaselineEdit} className="group w-full text-left">
+            {client.baseline_metrics ? (
+              <div className="text-xs text-slate-400 font-mono whitespace-pre-wrap">
+                {typeof client.baseline_metrics === 'object'
+                  ? Object.entries(client.baseline_metrics).map(([k, v]) => `${k}: ${v}`).join(' · ')
+                  : String(client.baseline_metrics)}
+                <span className="text-slate-600 group-hover:text-emerald-400 text-[10px] ml-1 transition">✎</span>
+              </div>
+            ) : (
+              <div className="text-xs text-slate-600 italic group-hover:text-slate-400 transition">
+                + Add baseline metrics…
+              </div>
+            )}
+          </button>
+        )}
+      </div>
+
+      {/* Service start date */}
+      {(client.service_start_date || client.success_definition) && (
+        <div className="border-t border-ink-800/60 pt-2 flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-wide text-slate-600">Service start</span>
+          <input
+            type="date"
+            value={client.service_start_date || ''}
+            onChange={e => onSaveServiceStart(e.target.value || null)}
+            className="bg-ink-800 border border-ink-700 rounded-md text-xs px-2 py-1 text-slate-300"
+          />
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -315,6 +315,10 @@ function Row({ client, onOpen }) {
   const loom = client.timers?.loom;
   const call = client.timers?.call_offer;
   const { canSeeFinancials } = useRole();
+  const daysSinceCreation = client.created_at
+    ? Math.floor((Date.now() - new Date(client.created_at).getTime()) / 86400000)
+    : 0;
+  const missingSuccessDef = !client.success_definition && daysSinceCreation > 14 && client.status !== 'churned';
   return (
     <div onClick={onOpen}
          className="grid grid-cols-12 gap-3 px-4 py-3 hover:bg-ink-800/60 cursor-pointer items-center text-sm transition">
@@ -322,6 +326,11 @@ function Row({ client, onOpen }) {
         <div className="flex items-center gap-2 min-w-0">
           <StatusDot status={client.status} label={false} />
           <span className="font-medium truncate">{client.name}</span>
+          {missingSuccessDef && (
+            <span className="shrink-0 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400" title="Success definition not captured — past day 14">
+              No SD
+            </span>
+          )}
         </div>
         <div className="text-xs text-slate-500 truncate">
           {canSeeFinancials && client.mrr ? <span className="text-emerald-400/80 font-medium tabular-nums mr-2">{fmtMRR(client.mrr, { compact: true })}/mo</span> : null}
