@@ -2,6 +2,8 @@
 import { Router } from 'express';
 import { supabase } from '../lib/supabase.js';
 import { runSlackDigestOnce } from '../jobs/slackDigest.js';
+import { channelHistory, resolveUser } from '../lib/slackClient.js';
+import { pickChannelForQuestion, answerFromMessages } from '../lib/classifier.js';
 
 const router = Router();
 
@@ -73,6 +75,49 @@ router.post('/run-now', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// POST /api/slack/ask — natural-language question. Uses AI to pick channel, fetch recent (or deep), synthesize synopsis.
+// body: { question: string, deep?: boolean, channel?: string (optional override) }
+router.post('/ask', async (req, res) => {
+  try {
+    const { question, deep = false, channel: channelOverride } = req.body || {};
+    if (!question || typeof question !== 'string') return res.status(400).json({ error: 'question required' });
+
+    // Pull channel list
+    const { data: channels } = await supabase.from('slack_channels').select('*').eq('is_archived', false);
+    if (!channels?.length) return res.json({ answer: 'No channels tracked yet. Run a scan first.', channel: null });
+
+    let picked = null;
+    if (channelOverride) {
+      picked = channels.find(c => c.name === channelOverride || c.slack_channel_id === channelOverride);
+    }
+    if (!picked) picked = await pickChannelForQuestion(question, channels);
+    if (!picked) return res.json({ answer: "I couldn't match your question to a specific channel. Try including the client's name.", channel: null });
+
+    // Recent = last 10, deep = last 200
+    const limit = deep ? 200 : 10;
+    const raw = await channelHistory(picked.slack_channel_id, null, limit);
+    const msgs = [];
+    for (const m of raw) {
+      if (!m.text || m.text.length < 2) continue;
+      if (m.bot_id) continue;
+      msgs.push({ sender_name: await resolveUser(m.user), text: m.text, ts: m.ts });
+    }
+    // Oldest-first for readability
+    msgs.reverse();
+
+    const answer = await answerFromMessages(question, picked.name, msgs);
+    res.json({
+      answer,
+      channel: { name: picked.name, id: picked.slack_channel_id },
+      message_count: msgs.length,
+      deep
+    });
+  } catch (e) {
+    console.error('[slack/ask]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /api/slack/status — config check (no secrets leaked)
 router.get('/status', async (_req, res) => {
   res.json({
@@ -80,7 +125,10 @@ router.get('/status', async (_req, res) => {
     anthropic_configured: !!process.env.ANTHROPIC_API_KEY,
     inactive_threshold_days: Number(process.env.SLACK_INACTIVE_DAYS || 4),
     digest_hour: Number(process.env.SLACK_DIGEST_HOUR || 5),
-    auto_join: (process.env.SLACK_AUTO_JOIN || 'true') !== 'false'
+    auto_join: (process.env.SLACK_AUTO_JOIN || 'true') !== 'false',
+    msgs_per_channel: Number(process.env.SLACK_MSGS_PER_CHANNEL || 8),
+    max_dashboard_items: Number(process.env.SLACK_MAX_DASHBOARD_ITEMS || 30),
+    team_members_configured: !!(process.env.SLACK_TEAM_MEMBERS || '').trim()
   });
 });
 

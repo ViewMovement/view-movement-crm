@@ -10,6 +10,26 @@ const INACTIVE_DAYS = Number(process.env.SLACK_INACTIVE_DAYS || 4);
 const LOOKBACK_HOURS = Number(process.env.SLACK_LOOKBACK_HOURS || 24);
 const DIGEST_HOUR = Number(process.env.SLACK_DIGEST_HOUR || 5);
 const AUTO_JOIN = (process.env.SLACK_AUTO_JOIN || 'true') !== 'false';
+const MSGS_PER_CHANNEL = Number(process.env.SLACK_MSGS_PER_CHANNEL || 8);
+const MAX_DASHBOARD_ITEMS = Number(process.env.SLACK_MAX_DASHBOARD_ITEMS || 30);
+
+// Team members (lowercased names or Slack user IDs) — messages from these users count as "our team responded"
+function teamMemberSet() {
+  const raw = process.env.SLACK_TEAM_MEMBERS || '';
+  return new Set(
+    raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+  );
+}
+function isTeamMember(sender_name, sender_id, teamSet) {
+  if (!teamSet.size) return false;
+  const n = (sender_name || '').toLowerCase();
+  const id = (sender_id || '').toLowerCase();
+  if (teamSet.has(id)) return true;
+  if (teamSet.has(n)) return true;
+  // Also match first name / "first last" fragment
+  for (const t of teamSet) if (n.includes(t)) return true;
+  return false;
+}
 
 let lastRunDate = null;
 
@@ -50,24 +70,37 @@ export async function runSlackDigestOnce({ lookbackHours = LOOKBACK_HOURS } = {}
     }
   }
 
-  // 3. Collect new messages from every channel
+  // 3. Collect new messages from every channel.
+  //    Skip channels whose most recent human message is from our team — conversation is handled.
+  const teamSet = teamMemberSet();
   const rawItems = [];
-  let scanned = 0;
+  let scanned = 0, handledSkips = 0;
   for (const c of channels) {
     try {
-      const msgs = await channelHistory(c.slack_channel_id, since);
+      // Last N messages per channel (default 8) — ignore lookback for relevance/cost
+      const msgs = await channelHistory(c.slack_channel_id, null, MSGS_PER_CHANNEL);
       scanned++;
+      if (!msgs.length) continue;
+
       // Track latest activity
-      if (msgs.length) {
-        const latest = Math.max(...msgs.map(m => parseFloat(m.ts) * 1000));
-        await supabase.from('slack_channels')
-          .update({ last_activity_at: new Date(latest).toISOString() })
-          .eq('slack_channel_id', c.slack_channel_id);
+      const latest = Math.max(...msgs.map(m => parseFloat(m.ts) * 1000));
+      await supabase.from('slack_channels')
+        .update({ last_activity_at: new Date(latest).toISOString() })
+        .eq('slack_channel_id', c.slack_channel_id);
+
+      // Slack returns most-recent-first. Find the most recent non-bot human message.
+      const humanMsgs = msgs.filter(m => m.text && m.text.length >= 3 && !m.bot_id);
+      if (!humanMsgs.length) continue;
+      const mostRecent = humanMsgs[0];
+      const mostRecentName = await resolveUser(mostRecent.user);
+      if (teamSet.size && isTeamMember(mostRecentName, mostRecent.user, teamSet)) {
+        handledSkips++;
+        continue; // ball is in client's court OR we already replied — don't flag
       }
-      for (const m of msgs) {
-        if (!m.text || m.text.length < 3) continue;
-        if (m.bot_id) continue; // skip bot noise
+
+      for (const m of humanMsgs) {
         const sender_name = await resolveUser(m.user);
+        const from_team = isTeamMember(sender_name, m.user, teamSet);
         rawItems.push({
           channel_id: channelRowsById[c.slack_channel_id].id,
           channel_name: c.name,
@@ -75,6 +108,7 @@ export async function runSlackDigestOnce({ lookbackHours = LOOKBACK_HOURS } = {}
           slack_channel_id: c.slack_channel_id,
           sender_name,
           sender_id: m.user || null,
+          from_team,
           text: m.text
         });
       }
@@ -82,6 +116,7 @@ export async function runSlackDigestOnce({ lookbackHours = LOOKBACK_HOURS } = {}
       console.warn(`[slack-digest] skip #${c.name}: ${e.message}`);
     }
   }
+  console.log(`[slack-digest] scanned ${scanned}, skipped ${handledSkips} already-handled, collected ${rawItems.length} raw items`);
 
   // 4. Classify in batches of 15 to keep prompt sizes reasonable
   const classified = [];
@@ -91,16 +126,30 @@ export async function runSlackDigestOnce({ lookbackHours = LOOKBACK_HOURS } = {}
     classified.push(...result);
   }
 
-  // 5. Resolve permalinks and upsert to slack_pulse_items (dedup by channel+ts)
+  // 5. Keep only urgent + heads_up. Rank (urgent before heads_up, newer first) and cap.
+  const ranked = classified
+    .filter(it => it.urgency === 'urgent' || it.urgency === 'heads_up')
+    .sort((a, b) => {
+      const order = { urgent: 0, heads_up: 1 };
+      const ua = order[a.urgency] ?? 9;
+      const ub = order[b.urgency] ?? 9;
+      if (ua !== ub) return ua - ub;
+      return parseFloat(b.slack_msg_ts) - parseFloat(a.slack_msg_ts);
+    })
+    .slice(0, MAX_DASHBOARD_ITEMS);
+
+  // Clear out previous unseen dashboard items so the cap stays tight.
+  await supabase.from('slack_pulse_items').delete().is('seen_at', null);
+
   let inserted = 0;
-  for (const it of classified) {
+  for (const it of ranked) {
     const link = await permalink(it.slack_channel_id, it.slack_msg_ts);
     const { error } = await supabase.from('slack_pulse_items').upsert({
       channel_id: it.channel_id,
       slack_msg_ts: it.slack_msg_ts,
       sender_name: it.sender_name,
       sender_id: it.sender_id,
-      urgency: it.urgency || 'fyi',
+      urgency: it.urgency,
       category: it.category || 'other',
       summary: it.summary || '(no summary)',
       suggested_action: it.suggested_action || null,

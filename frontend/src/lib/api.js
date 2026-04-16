@@ -64,5 +64,7 @@ export const api = {
   slackMarkSeen:   (id)            => request(`/api/slack/pulse/${id}/seen`, { method: 'POST', body: '{}' }),
   slackSeenAll:    ()              => request(`/api/slack/pulse/seen-all`, { method: 'POST', body: '{}' }),
   slackDigest:     ()              => request('/api/slack/digest'),
-  slackInactive:   ()              => request('/api/slack/channels/inactive')
+  slackInactive:   ()              => request('/api/slack/channels/inactive'),
+  slackAsk:        (question, deep=false, channel=null) =>
+                    request('/api/slack/ask', { method: 'POST', body: JSON.stringify({ question, deep, channel }) })
 };

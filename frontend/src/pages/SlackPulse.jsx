@@ -79,6 +79,8 @@ export default function SlackPulse() {
         </div>
       </header>
 
+      <AskBox />
+
       {digest?.summary_markdown && (
         <section className="p-5 rounded-xl border border-ink-800 bg-ink-900/40">
           <div className="text-[11px] uppercase tracking-wider text-slate-500 mb-2">AI briefing</div>
@@ -125,6 +127,64 @@ export default function SlackPulse() {
         </section>
       )}
     </div>
+  );
+}
+
+function AskBox() {
+  const [q, setQ] = useState('');
+  const [deep, setDeep] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+
+  async function submit(e) {
+    e?.preventDefault?.();
+    const trimmed = q.trim();
+    if (!trimmed) return;
+    setLoading(true); setError(null); setResult(null);
+    try {
+      const r = await api.slackAsk(trimmed, deep);
+      setResult(r);
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <section className="p-5 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.03]">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-[11px] uppercase tracking-wider text-emerald-300/80">Ask the channels</div>
+        <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
+          <input type="checkbox" checked={deep} onChange={e => setDeep(e.target.checked)}
+            className="accent-emerald-500" />
+          Deep search (last 200 msgs)
+        </label>
+      </div>
+      <form onSubmit={submit} className="flex gap-2">
+        <input
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder='e.g. "Where are we at with Gary Taubes?"'
+          className="flex-1 px-3 py-2 rounded-md bg-ink-950 border border-ink-700 text-slate-100 text-sm placeholder:text-slate-600 focus:outline-none focus:border-emerald-500/50"
+        />
+        <button type="submit" disabled={loading || !q.trim()}
+          className="px-4 py-2 rounded-md text-sm bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 disabled:opacity-40 disabled:cursor-not-allowed transition">
+          {loading ? 'Thinking…' : 'Ask'}
+        </button>
+      </form>
+      {error && <div className="mt-3 text-sm text-rose-400">Error: {error}</div>}
+      {result && (
+        <div className="mt-4 p-4 rounded-lg bg-ink-950/60 border border-ink-800">
+          <div className="flex items-center gap-2 mb-2 text-xs text-slate-400">
+            <span>Channel:</span>
+            {result.channel
+              ? <span className="text-emerald-300">#{result.channel.name}</span>
+              : <span className="text-slate-500">(none matched)</span>}
+            {result.channel && <span className="text-slate-600">· {result.message_count} msgs {result.deep ? '(deep)' : '(recent)'}</span>}
+          </div>
+          <Markdown text={result.answer} />
+        </div>
+      )}
+    </section>
   );
 }
 

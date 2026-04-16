@@ -51,29 +51,22 @@ export async function listAllChannels() {
   return out;
 }
 
-// Fetch messages since a unix timestamp (seconds). Returns array of messages.
-export async function channelHistory(channelId, oldestTs) {
-  const out = [];
-  let cursor;
-  do {
-    const params = { channel: channelId, limit: '200' };
-    if (oldestTs) params.oldest = String(oldestTs);
-    if (cursor) params.cursor = cursor;
-    let r;
-    try {
-      r = await call('conversations.history', params);
-    } catch (e) {
-      // Not a member, archived, etc. — skip silently
-      if (String(e.message).includes('not_in_channel')) return out;
-      if (String(e.message).includes('channel_not_found')) return out;
-      throw e;
-    }
-    out.push(...(r.messages || []));
-    cursor = r.response_metadata?.next_cursor || null;
-    if (!r.has_more) break;
-  } while (cursor);
-  // Exclude bot messages and channel join/leave system events
-  return out.filter(m => !m.subtype || ['thread_broadcast'].includes(m.subtype));
+// Fetch the most recent messages in a channel. Default limit 8 for relevance + cost.
+// If oldestTs is provided it is used as a lower bound, but we still cap the total.
+export async function channelHistory(channelId, oldestTs, limit = 8) {
+  const params = { channel: channelId, limit: String(limit) };
+  if (oldestTs) params.oldest = String(oldestTs);
+  let r;
+  try {
+    r = await call('conversations.history', params);
+  } catch (e) {
+    if (String(e.message).includes('not_in_channel')) return [];
+    if (String(e.message).includes('channel_not_found')) return [];
+    throw e;
+  }
+  const msgs = r.messages || [];
+  // Exclude system events and bot echo messages
+  return msgs.filter(m => !m.subtype || ['thread_broadcast'].includes(m.subtype));
 }
 
 // Resolve user id to display name (cached in memory for one run)
