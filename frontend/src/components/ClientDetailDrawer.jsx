@@ -4,7 +4,7 @@ import { api } from '../lib/api.js';
 import { useToast } from '../lib/toast.jsx';
 import { useData } from '../lib/data.jsx';
 import { statusMeta, StatusDot, Skeleton } from './primitives.jsx';
-import { fmtDate, fmtRelative, touchpointLabel } from '../lib/format.js';
+import { fmtDate, fmtRelative, touchpointLabel, fmtMRR } from '../lib/format.js';
 import HealthRing from './HealthRing.jsx';
 import Sparkline from './Sparkline.jsx';
 
@@ -92,6 +92,13 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
     show({ message: `Cohort → ${cohort.replace(/_/g, ' ')}` });
   }
 
+  async function saveField(field, value) {
+    await api.updateClient(clientId, { [field]: value || null });
+    load(); refresh(true);
+    const labels = { mrr: 'MRR', billing_date: 'Billing date', package: 'Package' };
+    show({ message: `${labels[field] || field} updated.` });
+  }
+
   async function toggleOnboardingStep(step) {
     await api.toggleOnboarding(clientId, step);
     load(); refresh(true);
@@ -157,10 +164,21 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
                 </select>
               } />
               <MetaCell label="Package" value={client.package ? `${client.package} reels` : '—'} />
-              <MetaCell label="Billing" value={client.billing_date
-                ? `${client.billing_date}${suffix(client.billing_date)} (${client.days_until_billing}d)`
-                : '—'} />
-              <MetaCell label="MRR" value={client.mrr ? `$${client.mrr}` : '—'} />
+              <MetaCell label="Billing" value={
+                <EditableNumber
+                  value={client.billing_date}
+                  display={client.billing_date
+                    ? `${client.billing_date}${suffix(client.billing_date)} (${client.days_until_billing}d)`
+                    : '—'}
+                  placeholder="Day (1-31)"
+                  min={1} max={31}
+                  onSave={v => saveField('billing_date', v ? Number(v) : null)} />
+              } />
+              <MetaCell label="MRR" value={
+                <EditableMRR
+                  value={client.mrr}
+                  onSave={v => saveField('mrr', v ? Number(v) : null)} />
+              } />
               <MetaCell label="Source" value={client.content_source || '—'} />
               <MetaCell label="Cohort" value={
                 <select value={client.cohort || ''} onChange={e => setCohort(e.target.value)}
@@ -330,6 +348,76 @@ function TimerBlock({ timer, label, onAction, onSnooze }) {
 }
 
 function suffix(n) { return n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'; }
+
+function EditableMRR({ value, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  function open() { setDraft(value || ''); setEditing(true); }
+  function cancel() { setEditing(false); }
+  function commit() {
+    const num = draft === '' ? null : Number(String(draft).replace(/[^0-9.]/g, ''));
+    if (num !== null && isNaN(num)) { cancel(); return; }
+    if (num !== (Number(value) || null)) onSave(num);
+    setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">$</span>
+        <input
+          type="number" autoFocus min={0} step={100}
+          className="bg-ink-800 border border-emerald-500/50 rounded px-2 py-0.5 text-sm w-24 outline-none focus:ring-1 focus:ring-emerald-500/40"
+          value={draft} onChange={e => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel(); }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <button onClick={open} className="group flex items-center gap-1 hover:text-emerald-300 transition text-left" title="Click to edit MRR">
+      <span>{value ? `$${fmtMRR(value)}` : '—'}</span>
+      <span className="text-slate-600 group-hover:text-emerald-400 text-[10px] transition">✎</span>
+    </button>
+  );
+}
+
+function EditableNumber({ value, display, placeholder, min, max, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  function open() { setDraft(value ?? ''); setEditing(true); }
+  function cancel() { setEditing(false); }
+  function commit() {
+    const num = draft === '' ? null : Number(draft);
+    if (num !== null && (isNaN(num) || (min != null && num < min) || (max != null && num > max))) { cancel(); return; }
+    if (num !== (Number(value) || null)) onSave(num);
+    setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <input
+        type="number" autoFocus min={min} max={max}
+        className="bg-ink-800 border border-emerald-500/50 rounded px-2 py-0.5 text-sm w-20 outline-none focus:ring-1 focus:ring-emerald-500/40"
+        placeholder={placeholder}
+        value={draft} onChange={e => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') cancel(); }}
+      />
+    );
+  }
+
+  return (
+    <button onClick={open} className="group flex items-center gap-1 hover:text-emerald-300 transition text-left" title="Click to edit">
+      <span>{display}</span>
+      <span className="text-slate-600 group-hover:text-emerald-400 text-[10px] transition">✎</span>
+    </button>
+  );
+}
 
 function Stepper({ title, defs, done, onToggle }) {
   if (!defs.length) return null;
