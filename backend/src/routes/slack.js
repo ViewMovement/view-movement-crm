@@ -121,6 +121,17 @@ router.post('/ask', async (req, res) => {
 
 // GET /api/slack/status — config check (no secrets leaked)
 router.get('/status', async (_req, res) => {
+  let botInfo = null;
+  if (process.env.SLACK_BOT_TOKEN) {
+    try {
+      const r = await fetch('https://slack.com/api/auth.test', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`, 'Content-Type': 'application/x-www-form-urlencoded' }
+      });
+      const j = await r.json();
+      if (j.ok) botInfo = { user_id: j.user_id, bot_id: j.bot_id, team: j.team, user: j.user };
+    } catch {}
+  }
   res.json({
     slack_configured: !!process.env.SLACK_BOT_TOKEN,
     anthropic_configured: !!process.env.ANTHROPIC_API_KEY,
@@ -129,7 +140,8 @@ router.get('/status', async (_req, res) => {
     auto_join: (process.env.SLACK_AUTO_JOIN || 'true') !== 'false',
     msgs_per_channel: Number(process.env.SLACK_MSGS_PER_CHANNEL || 8),
     max_dashboard_items: Number(process.env.SLACK_MAX_DASHBOARD_ITEMS || 30),
-    team_members_configured: !!(process.env.SLACK_TEAM_MEMBERS || '').trim()
+    team_members_configured: !!(process.env.SLACK_TEAM_MEMBERS || '').trim(),
+    bot: botInfo
   });
 });
 
