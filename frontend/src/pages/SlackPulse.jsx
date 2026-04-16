@@ -74,22 +74,22 @@ export default function SlackPulse() {
     try { await api.slackSeenAll(); show?.({ message: 'All dismissed' }); } catch { load(); }
   }
 
-  if (!status) return <div className="text-slate-400">Loading…</div>;
-
-  if (!status.slack_configured) {
-    return <NotConfigured status={status} />;
-  }
-
-  // Build channel→client lookup for linking
+  // Build channel→client lookup for linking (must be above early returns to keep hook order stable)
   const channelClientMap = useMemo(() => {
     const map = {};
-    const channels = new Set(items.map(i => i.channel_name).filter(Boolean));
+    const channels = new Set((items || []).map(i => i.channel_name).filter(Boolean));
     for (const ch of channels) {
       const match = matchChannelToClient(ch, allClients);
       if (match) map[ch] = match;
     }
     return map;
   }, [items, allClients]);
+
+  if (!status) return <div className="text-slate-400">Loading…</div>;
+
+  if (!status.slack_configured) {
+    return <NotConfigured status={status} />;
+  }
 
   const grouped = groupByChannel(items);
   const counts = {
