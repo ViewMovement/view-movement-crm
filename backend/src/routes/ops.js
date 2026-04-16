@@ -43,11 +43,14 @@ export const SITUATION_TYPES = {
 router.get('/triage', async (_req, res) => {
   try {
     const now = new Date();
-    const [{ data: clients }, { data: timers }, { data: flags }, { data: recentTps }] = await Promise.all([
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const [{ data: clients }, { data: timers }, { data: flags }, { data: recentTps }, { data: pulseItems }, { data: todaysTps }] = await Promise.all([
       supabase.from('clients').select('*'),
       supabase.from('timers').select('*'),
       supabase.from('situation_flags').select('*').is('resolved_at', null),
-      supabase.from('touchpoints').select('client_id, created_at, type, content').gte('created_at', addDays(now, -2).toISOString()).order('created_at', { ascending: false })
+      supabase.from('touchpoints').select('client_id, created_at, type, content').gte('created_at', addDays(now, -2).toISOString()).order('created_at', { ascending: false }),
+      supabase.from('slack_pulse_items').select('*, channel:slack_channels(name, slack_channel_id)').is('seen_at', null).in('urgency', ['urgent', 'heads_up']).order('created_at', { ascending: false }).limit(20),
+      supabase.from('touchpoints').select('client_id, type').gte('created_at', startOfDay)
     ]);
 
     const timersByClient = {};
@@ -62,8 +65,10 @@ router.get('/triage', async (_req, res) => {
 
     // Phase 1: Urgent - failed payments, cancelling with red, no touchpoint 48h+ for red clients, open critical flags
     const urgent = [];
-    // Phase 2: Client channel sweep - grouped by cohort, with overdue/due timers
-    const sweep = { new: [], active_happy: [], active_hands_off: [], cancelling: [] };
+    // Phase 2: Today — onboarding clients + pressing Slack pulse
+    const onboarding = [];
+    // Phase 3: Retention — Loom/call timer to-dos
+    const retention = [];
     // Phase 4: Monitor - recent activity in last 2 days
     const clientNameById = Object.fromEntries((clients || []).map(c => [c.id, c.name]));
     const monitor = (recentTps || []).slice(0, 40).map(t => ({
@@ -71,7 +76,16 @@ router.get('/triage', async (_req, res) => {
       client_name: clientNameById[t.client_id] || 'Unknown'
     }));
 
+    // Track today's actions so we can mark retention items as done
+    const todaysActionsByClient = {};
+    for (const t of todaysTps || []) {
+      (todaysActionsByClient[t.client_id] = todaysActionsByClient[t.client_id] || []).push(t.type);
+    }
+
+    const urgentClientIds = new Set();
+
     for (const c of clients || []) {
+      if (c.status === 'churned') continue;
       const cTimers = timersByClient[c.id] || [];
       const overdueTimers = cTimers.filter(t => new Date(t.next_due_at) <= now);
       const dueSoon = cTimers.filter(t => new Date(t.next_due_at) > now && new Date(t.next_due_at) <= addDays(now, 2));
@@ -81,28 +95,75 @@ router.get('/triage', async (_req, res) => {
       // Urgent triggers
       if (criticalFlags.length) {
         urgent.push({ client: c, timers: cTimers, flags: cFlags, reason: criticalFlags[0].type });
+        urgentClientIds.add(c.id);
         continue;
       }
       if (c.status === 'red' && overdueTimers.length) {
         urgent.push({ client: c, timers: cTimers, flags: cFlags, reason: 'red_overdue' });
+        urgentClientIds.add(c.id);
         continue;
       }
 
-      // Sweep buckets
-      const cohort = c.cohort || (c.status === 'churned' ? 'churned' : 'active_happy');
-      if (cohort === 'churned') continue; // churned handled in closeout view
-      if (sweep[cohort] && (overdueTimers.length || dueSoon.length || cFlags.length)) {
-        sweep[cohort].push({ client: c, timers: cTimers, flags: cFlags, due_soon: dueSoon.length > 0, overdue: overdueTimers.length > 0 });
+      // Onboarding: cohort=new or has incomplete onboarding steps
+      if (c.cohort === 'new') {
+        const steps = c.onboarding_steps || {};
+        const total = 7;
+        const completed = Object.keys(steps).length;
+        onboarding.push({ client: c, completed, total, flags: cFlags });
+      }
+
+      // Retention: loom/call timer actions
+      const loomTimer = cTimers.find(t => t.timer_type === 'loom');
+      const callTimer = cTimers.find(t => t.timer_type === 'call_offer');
+      const clientActions = todaysActionsByClient[c.id] || [];
+      const loomDoneToday = clientActions.includes('loom_sent');
+      const callDoneToday = clientActions.includes('call_offered') || clientActions.includes('call_completed');
+
+      if (loomTimer) {
+        const loomOverdue = new Date(loomTimer.next_due_at) <= now;
+        const loomDueSoon = !loomOverdue && new Date(loomTimer.next_due_at) <= addDays(now, 2);
+        if (loomOverdue || loomDueSoon) {
+          const daysOver = loomOverdue ? Math.floor((now - new Date(loomTimer.next_due_at)) / 86400000) : 0;
+          retention.push({
+            client: c, action_type: 'loom', overdue: loomOverdue, due_soon: loomDueSoon,
+            days_overdue: daysOver, done_today: loomDoneToday,
+            next_due: loomTimer.next_due_at, flags: cFlags
+          });
+        }
+      }
+      if (callTimer) {
+        const callOverdue = new Date(callTimer.next_due_at) <= now;
+        const callDueSoon = !callOverdue && new Date(callTimer.next_due_at) <= addDays(now, 2);
+        if (callOverdue || callDueSoon) {
+          const daysOver = callOverdue ? Math.floor((now - new Date(callTimer.next_due_at)) / 86400000) : 0;
+          retention.push({
+            client: c, action_type: 'call', overdue: callOverdue, due_soon: callDueSoon,
+            days_overdue: daysOver, done_today: callDoneToday,
+            next_due: callTimer.next_due_at, flags: cFlags
+          });
+        }
       }
     }
 
+    // Sort retention: overdue first, then by days overdue desc, then due-soon
+    retention.sort((a, b) => {
+      if (a.done_today !== b.done_today) return a.done_today ? 1 : -1;
+      if (a.overdue !== b.overdue) return a.overdue ? -1 : 1;
+      return b.days_overdue - a.days_overdue;
+    });
+
     res.json({
       urgent,
-      sweep,
+      onboarding,
+      pulse_pressing: pulseItems || [],
+      retention,
       monitor,
       counts: {
         urgent: urgent.length,
-        sweep_total: Object.values(sweep).reduce((a, b) => a + b.length, 0),
+        onboarding: onboarding.length,
+        pulse_pressing: (pulseItems || []).length,
+        retention_due: retention.filter(r => !r.done_today).length,
+        retention_done: retention.filter(r => r.done_today).length,
         open_flags: (flags || []).length
       }
     });
