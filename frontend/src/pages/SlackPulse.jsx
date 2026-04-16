@@ -48,15 +48,15 @@ export default function SlackPulse() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, p, d, i] = await Promise.all([
+      const [s, p, d, i, cs] = await Promise.all([
         api.slackStatus(),
         api.slackPulse(filter),
         api.slackDigest(),
-        api.slackInactive()
+        api.slackInactive(),
+        api.listClients().catch(() => null)
       ]);
       setStatus(s); setItems(p); setDigest(d); setInactive(i);
-      // Also load client list for channel→client matching
-      try { const cs = await api.listClients(); setAllClients(cs); } catch {}
+      if (cs) setAllClients(cs);
     } catch (e) { show?.({ message: 'Failed to load Slack Pulse: ' + e.message }); }
     finally { setLoading(false); }
   }, [filter, show]);

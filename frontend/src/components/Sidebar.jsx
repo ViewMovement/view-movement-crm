@@ -20,8 +20,9 @@ const RETENTION_ITEMS = [
 ];
 
 const INSIGHT_ITEMS = [
-  { to: '/reports',  label: 'Reports',  icon: '◑', shortcut: 'R' },
-  { to: '/settings', label: 'Settings', icon: '⚙', shortcut: ',' }
+  { to: '/dashboard', label: 'Dashboard', icon: '▣', shortcut: 'D' },
+  { to: '/reports',   label: 'Reports',   icon: '◑', shortcut: 'R' },
+  { to: '/settings',  label: 'Settings',  icon: '⚙', shortcut: ',' }
 ];
 
 export default function Sidebar({ onOpenPalette }) {
