@@ -1,6 +1,6 @@
 // Shared client/timer/touchpoint operations used by routes and jobs.
 import { supabase } from './supabase.js';
-import { computeNextDue } from './cadence.js';
+import { computeNextDue, addHours, EXPECTATIONS_LOOM_HOURS } from './cadence.js';
 
 export async function createClient(fields) {
   const { data: client, error } = await supabase
@@ -80,4 +80,19 @@ export async function refreshOverdueFlags() {
   const nowIso = new Date().toISOString();
   await supabase.from('timers').update({ is_overdue: true }).lte('next_due_at', nowIso);
   await supabase.from('timers').update({ is_overdue: false }).gt('next_due_at', nowIso);
+}
+
+export async function createExpectationsLoomTimer(clientId) {
+    const now = new Date();
+    const dueAt = addHours(now, EXPECTATIONS_LOOM_HOURS);
+    const { error } = await supabase.from('timers').upsert({
+          client_id: clientId, timer_type: 'expectations_loom',
+          last_reset_at: now.toISOString(), next_due_at: dueAt.toISOString(), is_overdue: false
+    }, { onConflict: 'client_id,timer_type' });
+    if (error) throw error;
+}
+
+export async function clearExpectationsLoomTimer(clientId) {
+    await supabase.from('timers').delete()
+      .eq('client_id', clientId).eq('timer_type', 'expectations_loom');
 }
