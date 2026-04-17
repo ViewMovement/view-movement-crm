@@ -344,14 +344,31 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
               </div>
             )}
 
-            {/* Actionable context */}
-            {(client.action_needed || client.reason || client.save_plan_analysis) && (
-              <div className="space-y-2">
-                {client.action_needed && <ContextBlock label="Action needed" tone="emerald" value={client.action_needed} />}
-                {client.reason && <ContextBlock label="Reason" value={client.reason} />}
-                {client.save_plan_analysis && <ContextBlock label="Save plan" value={client.save_plan_analysis} />}
-              </div>
-            )}
+            {/* Actionable context — editable */}
+            <div className="space-y-2">
+              <EditableContextField
+                label="Action needed"
+                tone="emerald"
+                value={client.action_needed || ''}
+                placeholder="What needs to happen next for this client?"
+                onSave={async (val) => {
+                  await api.updateClient(clientId, { action_needed: val || null });
+                  load(); refresh(true);
+                  show({ message: 'Action needed updated.' });
+                }}
+              />
+              <EditableContextField
+                label="Reason / context"
+                value={client.reason || ''}
+                placeholder="Any context about this client's current situation…"
+                onSave={async (val) => {
+                  await api.updateClient(clientId, { reason: val || null });
+                  load(); refresh(true);
+                  show({ message: 'Reason updated.' });
+                }}
+              />
+              {client.save_plan_analysis && <ContextBlock label="Save plan" value={client.save_plan_analysis} />}
+            </div>
 
             {/* Note */}
             <div>
@@ -533,6 +550,63 @@ function ContextBlock({ label, value, tone }) {
     <div className={`rounded-lg border ${color} p-3`}>
       <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">{label}</div>
       <div className="text-sm text-slate-200 whitespace-pre-wrap">{value}</div>
+    </div>
+  );
+}
+
+function EditableContextField({ label, value, placeholder, tone, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+
+  // Sync draft when value changes externally
+  useEffect(() => { setDraft(value); }, [value]);
+
+  const color = tone === 'emerald'
+    ? 'border-emerald-500/30 bg-emerald-500/5'
+    : 'border-ink-700 bg-ink-800/50';
+
+  const save = async () => {
+    const trimmed = draft.trim();
+    if (trimmed === (value || '').trim()) { setEditing(false); return; }
+    setSaving(true);
+    try { await onSave(trimmed); } finally { setSaving(false); setEditing(false); }
+  };
+
+  if (editing) {
+    return (
+      <div className={`rounded-lg border ${color} p-3`}>
+        <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">{label}</div>
+        <textarea
+          className="input w-full h-20 text-sm"
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          placeholder={placeholder}
+          autoFocus
+          onKeyDown={e => { if (e.key === 'Escape') { setDraft(value); setEditing(false); } }}
+        />
+        <div className="flex items-center gap-2 mt-2">
+          <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          <button className="btn btn-sm" onClick={() => { setDraft(value); setEditing(false); }}>Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`rounded-lg border ${color} p-3 group cursor-pointer hover:border-slate-500/40 transition`}
+      onClick={() => setEditing(true)}>
+      <div className="flex items-center justify-between">
+        <div className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">{label}</div>
+        <span className="text-[10px] text-slate-600 opacity-0 group-hover:opacity-100 transition">Edit</span>
+      </div>
+      {value ? (
+        <div className="text-sm text-slate-200 whitespace-pre-wrap">{value}</div>
+      ) : (
+        <div className="text-sm text-slate-500 italic">{placeholder}</div>
+      )}
     </div>
   );
 }
