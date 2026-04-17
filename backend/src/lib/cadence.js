@@ -77,3 +77,9 @@ export function daysUntilBilling(billingDay, now = new Date()) {
   }
   return Math.round((target - today) / MS_PER_DAY);
 }
+
+// Expectations Loom timer: 72 hours after onboarding call
+export const EXPECTATIONS_LOOM_HOURS = 72;
+export function addHours(date, hours) {
+    return new Date(new Date(date).getTime() + hours * 60 * 60 * 1000);
+}
