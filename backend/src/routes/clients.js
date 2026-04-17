@@ -4,6 +4,7 @@ import {
   createClient, logTouchpoint, resetTimer, recalcTimersForStatusChange, refreshOverdueFlags
 } from '../lib/clientOps.js';
 import { daysUntil, daysOverdue, daysUntilBilling, HEADS_UP_DAYS, ONBOARDING_REMINDER_DAYS, addDays, computeNextDue } from '../lib/cadence.js';
+import { generateReviewsForClient } from './reviews.js';
 
 const router = Router();
 
@@ -113,8 +114,14 @@ router.get('/:id', async (req, res) => {
 
 // POST /api/clients - manual create (rare; mainly used by sync job)
 router.post('/', async (req, res) => {
-  try { res.status(201).json(await createClient(req.body)); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+  try {
+    const client = await createClient(req.body);
+    // Auto-generate Day 30/60/80 reviews + first QBR
+    generateReviewsForClient(client.id, client.service_start_date || client.created_at).catch(e =>
+      console.error('[reviews] auto-gen failed for', client.id, e.message)
+    );
+    res.status(201).json(client);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // PATCH /api/clients/:id - update any field(s); handles status change side effects

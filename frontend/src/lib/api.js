@@ -69,6 +69,11 @@ export const api = {
   slackInactive:   ()              => request('/api/slack/channels/inactive'),
   slackAsk:        (question, deep=false, channel=null) =>
                     request('/api/slack/ask', { method: 'POST', body: JSON.stringify({ question, deep, channel }) }),
+  // Reviews
+  clientReviews:   (id)            => request(`/api/reviews/client/${id}`),
+  dueReviews:      ()              => request('/api/reviews/due'),
+  updateReview:    (id, patch)     => request(`/api/reviews/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  generateReviews: (id)            => request(`/api/reviews/generate/${id}`, { method: 'POST' }),
   // Roles
   myRole:          ()              => request('/api/roles/me'),
   listRoles:       ()              => request('/api/roles'),

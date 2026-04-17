@@ -29,6 +29,7 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
   const [closeoutDefs, setCloseoutDefs] = useState([]);
   const [openFlags, setOpenFlags] = useState([]);
   const [health, setHealth] = useState(null);
+  const [reviews, setReviews] = useState([]);
   const { refresh } = useData();
   const { show } = useToast();
   const { canSeeFinancials } = useRole();
@@ -45,6 +46,7 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
     setClient(c); setOnboardingDefs(o); setCloseoutDefs(co);
     setOpenFlags((fl?.flags || []).filter(f => f.client_id === clientId));
     api.clientHealth(clientId).then(setHealth).catch(() => setHealth(null));
+    api.clientReviews(clientId).then(setReviews).catch(() => setReviews([]));
   }, [clientId]);
 
   useEffect(() => { load(); }, [load]);
@@ -287,6 +289,19 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
                 onSnooze={(d) => snooze('call_offer', d)} />
             </div>
 
+            {/* Reviews — Day 30/60/80 + QBRs */}
+            {reviews.length > 0 && (
+              <ReviewsBlock reviews={reviews} onUpdate={async (id, patch) => {
+                await api.updateReview(id, patch);
+                load(); refresh(true);
+                show({ message: 'Review updated.' });
+              }} onGenerate={async () => {
+                await api.generateReviews(clientId);
+                load();
+                show({ message: 'Reviews generated.' });
+              }} />
+            )}
+
             {/* Actionable context */}
             {(client.action_needed || client.reason || client.save_plan_analysis) && (
               <div className="space-y-2">
@@ -448,6 +463,140 @@ function EditableNumber({ value, display, placeholder, min, max, onSave }) {
       <span>{display}</span>
       <span className="text-slate-600 group-hover:text-emerald-400 text-[10px] transition">✎</span>
     </button>
+  );
+}
+
+function ReviewsBlock({ reviews, onUpdate, onGenerate }) {
+  const [expandedId, setExpandedId] = useState(null);
+  const [form, setForm] = useState({});
+
+  const TYPE_LABELS = { day_30: 'Day 30 Review', day_60: 'Day 60 Review', day_80: 'Day 80 Review', qbr: 'QBR' };
+  const STATUS_STYLES = {
+    overdue: 'border-rose-500/30 bg-rose-500/5 text-rose-300',
+    upcoming: 'border-amber-500/30 bg-amber-500/5 text-amber-300',
+    pending: 'border-ink-700 bg-ink-800/40 text-slate-400',
+    completed: 'border-emerald-500/20 bg-emerald-500/5 text-emerald-300',
+    skipped: 'border-ink-700 bg-ink-800/20 text-slate-500'
+  };
+
+  function toggleExpand(review) {
+    if (expandedId === review.id) { setExpandedId(null); return; }
+    setExpandedId(review.id);
+    setForm({
+      goals_on_track: review.goals_on_track ?? null,
+      success_progress: review.success_progress || '',
+      content_feedback: review.content_feedback || '',
+      engagement_notes: review.engagement_notes || '',
+      concerns: review.concerns || '',
+      action_items: review.action_items || '',
+      retention_risk: review.retention_risk || '',
+      nps_score: review.nps_score ?? ''
+    });
+  }
+
+  function submitReview(reviewId) {
+    const patch = { ...form, status: 'completed' };
+    if (patch.nps_score === '') delete patch.nps_score;
+    else patch.nps_score = Number(patch.nps_score);
+    if (patch.goals_on_track === null) delete patch.goals_on_track;
+    onUpdate(reviewId, patch);
+    setExpandedId(null);
+  }
+
+  return (
+    <div>
+      <div className="text-xs uppercase tracking-wide text-slate-500 mb-2 flex items-center justify-between">
+        <span>Reviews</span>
+        <span className="text-slate-400 tabular-nums">
+          {reviews.filter(r => r.status === 'completed').length}/{reviews.length}
+        </span>
+      </div>
+      <div className="space-y-2">
+        {reviews.map(r => (
+          <div key={r.id}>
+            <button onClick={() => toggleExpand(r)}
+              className={`w-full flex items-center gap-3 rounded-md border px-3 py-2 text-sm text-left transition ${STATUS_STYLES[r.status] || STATUS_STYLES.pending}`}>
+              <span className={`h-4 w-4 rounded-full border grid place-items-center text-[10px] shrink-0 ${
+                r.status === 'completed' ? 'bg-emerald-500 border-emerald-500 text-ink-950' : 'border-current'
+              }`}>{r.status === 'completed' ? '✓' : r.status === 'overdue' ? '!' : '○'}</span>
+              <span className="flex-1">{TYPE_LABELS[r.review_type] || r.review_type}</span>
+              <span className="text-[10px] tabular-nums text-slate-500">
+                {r.status === 'completed' ? `Done ${fmtDate(r.completed_at)}` : `Due ${fmtDate(r.due_at)}`}
+              </span>
+              <span className="text-[10px] text-slate-600">{expandedId === r.id ? '▾' : '▸'}</span>
+            </button>
+
+            {expandedId === r.id && r.status !== 'completed' && (
+              <div className="mt-2 ml-7 space-y-3 rounded-md border border-ink-700 bg-ink-900/60 p-3">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-400">Goals on track?</span>
+                  <div className="flex gap-1">
+                    {[true, false].map(v => (
+                      <button key={String(v)} onClick={() => setForm(f => ({ ...f, goals_on_track: v }))}
+                        className={`text-xs px-2 py-0.5 rounded border ${form.goals_on_track === v
+                          ? (v ? 'border-emerald-500 bg-emerald-500/20 text-emerald-300' : 'border-rose-500 bg-rose-500/20 text-rose-300')
+                          : 'border-ink-600 text-slate-400 hover:border-slate-500'}`}>
+                        {v ? 'Yes' : 'No'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <ReviewField label="Success progress" value={form.success_progress} onChange={v => setForm(f => ({ ...f, success_progress: v }))} />
+                <ReviewField label="Content feedback" value={form.content_feedback} onChange={v => setForm(f => ({ ...f, content_feedback: v }))} />
+                <ReviewField label="Engagement notes" value={form.engagement_notes} onChange={v => setForm(f => ({ ...f, engagement_notes: v }))} />
+                <ReviewField label="Concerns" value={form.concerns} onChange={v => setForm(f => ({ ...f, concerns: v }))} />
+                <ReviewField label="Action items" value={form.action_items} onChange={v => setForm(f => ({ ...f, action_items: v }))} />
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-slate-400">Retention risk</span>
+                  <select value={form.retention_risk} onChange={e => setForm(f => ({ ...f, retention_risk: e.target.value }))}
+                    className="bg-ink-800 border border-ink-700 rounded text-xs px-2 py-1 text-slate-300">
+                    <option value="">—</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                  <span className="text-xs text-slate-400 ml-3">NPS</span>
+                  <input type="number" min="0" max="10" value={form.nps_score}
+                    onChange={e => setForm(f => ({ ...f, nps_score: e.target.value }))}
+                    className="bg-ink-800 border border-ink-700 rounded text-xs px-2 py-1 w-12 text-center text-slate-300" placeholder="—" />
+                </div>
+                <div className="flex gap-2 justify-end pt-1">
+                  <button className="btn btn-sm text-xs text-slate-400" onClick={() => { onUpdate(r.id, { status: 'skipped' }); setExpandedId(null); }}>Skip</button>
+                  <button className="btn btn-primary btn-sm" onClick={() => submitReview(r.id)}>Complete Review</button>
+                </div>
+              </div>
+            )}
+
+            {expandedId === r.id && r.status === 'completed' && (
+              <div className="mt-2 ml-7 space-y-1 rounded-md border border-ink-700 bg-ink-900/60 p-3 text-xs">
+                {r.goals_on_track != null && <div><span className="text-slate-500">Goals on track:</span> <span className={r.goals_on_track ? 'text-emerald-300' : 'text-rose-300'}>{r.goals_on_track ? 'Yes' : 'No'}</span></div>}
+                {r.success_progress && <div><span className="text-slate-500">Progress:</span> <span className="text-slate-300">{r.success_progress}</span></div>}
+                {r.content_feedback && <div><span className="text-slate-500">Content:</span> <span className="text-slate-300">{r.content_feedback}</span></div>}
+                {r.concerns && <div><span className="text-slate-500">Concerns:</span> <span className="text-rose-300">{r.concerns}</span></div>}
+                {r.action_items && <div><span className="text-slate-500">Actions:</span> <span className="text-slate-300">{r.action_items}</span></div>}
+                {r.retention_risk && <div><span className="text-slate-500">Risk:</span> <span className={r.retention_risk === 'high' ? 'text-rose-300' : r.retention_risk === 'medium' ? 'text-amber-300' : 'text-emerald-300'}>{r.retention_risk}</span></div>}
+                {r.nps_score != null && <div><span className="text-slate-500">NPS:</span> <span className="text-slate-300">{r.nps_score}/10</span></div>}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      {reviews.length === 0 && (
+        <button onClick={onGenerate} className="text-xs text-slate-500 hover:text-slate-300 transition mt-1">
+          + Generate review schedule
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ReviewField({ label, value, onChange }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wide text-slate-600 mb-0.5">{label}</div>
+      <textarea className="input h-12 text-xs" value={value} onChange={e => onChange(e.target.value)}
+        placeholder={`${label}…`} />
+    </div>
   );
 }
 
