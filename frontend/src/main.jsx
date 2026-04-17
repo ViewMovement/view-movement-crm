@@ -18,6 +18,7 @@ import SettingsPage from './pages/Settings.jsx';
 import NotFound from './pages/NotFound.jsx';
 import SlackPulse from './pages/SlackPulse.jsx';
 import Dashboard from './pages/Dashboard.jsx';
+import Retention from './pages/Retention.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import ClientProfile from './pages/ClientProfile.jsx';
 import { AuthProvider, RequireAuth } from './lib/auth.jsx';
@@ -63,6 +64,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route path="/save-queue" element={<RequireFinancial><SaveQueue /></RequireFinancial>} />
               <Route path="/flags" element={<RequireFinancial><Flags /></RequireFinancial>} />
               <Route path="/digest" element={<RequireFinancial><Digest /></RequireFinancial>} />
+              <Route path="/retention" element={<RequireFinancial><Retention /></RequireFinancial>} />
               <Route path="/dashboard" element={<RequireFinancial><Dashboard /></RequireFinancial>} />
               <Route path="/reports" element={<RequireFinancial><Reports /></RequireFinancial>} />
               <Route path="*" element={<NotFound />} />

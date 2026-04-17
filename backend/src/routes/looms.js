@@ -19,6 +19,8 @@ router.post('/', async (req, res) => {
       performance_snapshot, wins, strategy_recommendation, content_plan, client_ask,
       // Optional enrichment
       metrics_snapshot, loom_url, duration_secs,
+      // Expectations Loom flag
+      is_expectations_loom,
       // Legacy fields (backward compat)
       updates, next_steps, ask
     } = req.body;
@@ -58,6 +60,13 @@ router.post('/', async (req, res) => {
     await logTouchpoint(client_id, 'loom_sent', summary);
     await resetTimer(client_id, 'loom').catch(() => {});
 
+    // Mark expectations loom sent on the client record
+    if (is_expectations_loom) {
+      await supabase.from('clients')
+        .update({ expectations_loom_sent_at: new Date().toISOString() })
+        .eq('id', client_id);
+    }
+
     res.status(201).json(data);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -67,6 +76,17 @@ router.patch('/:id/responded', async (req, res) => {
   try {
     const { data, error } = await supabase.from('loom_entries')
       .update({ client_responded: true, client_responded_at: new Date().toISOString() })
+      .eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json(data);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PATCH /api/looms/:id/discord — mark that Discord handoff note was sent
+router.patch('/:id/discord', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('loom_entries')
+      .update({ discord_note_sent: true, discord_note_sent_at: new Date().toISOString() })
       .eq('id', req.params.id).select().single();
     if (error) throw error;
     res.json(data);

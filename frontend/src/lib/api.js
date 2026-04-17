@@ -74,6 +74,14 @@ export const api = {
   clientLooms:     (id)            => request(`/api/looms/client/${id}`),
   markLoomResponded:(id)           => request(`/api/looms/${id}/responded`, { method: 'PATCH' }),
   unrespondedLooms:()              => request('/api/looms/unresponded'),
+  // Goals
+  clientGoals:     (id)            => request(`/api/goals/client/${id}`),
+  activeGoals:     ()              => request('/api/goals/active'),
+  goalsForReview:  ()              => request('/api/goals/review'),
+  createGoal:      (body)          => request('/api/goals', { method: 'POST', body: JSON.stringify(body) }),
+  updateGoal:      (id, patch)     => request(`/api/goals/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  // Loom extras
+  markDiscordSent: (id)            => request(`/api/looms/${id}/discord`, { method: 'PATCH' }),
   // Reviews
   clientReviews:   (id)            => request(`/api/reviews/client/${id}`),
   dueReviews:      ()              => request('/api/reviews/due'),

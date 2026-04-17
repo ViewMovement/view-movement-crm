@@ -11,11 +11,13 @@ export async function createClient(fields) {
   if (error) throw error;
 
   const now = new Date();
-  const nextDue = computeNextDue(now, client.status);
+  const ssd = client.service_start_date || client.created_at;
+  const loomDue = computeNextDue(now, client.status, 'loom', ssd);
+  const callDue = computeNextDue(now, client.status, 'call_offer');
 
   const { error: tErr } = await supabase.from('timers').insert([
-    { client_id: client.id, timer_type: 'loom',       last_reset_at: now.toISOString(), next_due_at: nextDue.toISOString() },
-    { client_id: client.id, timer_type: 'call_offer', last_reset_at: now.toISOString(), next_due_at: nextDue.toISOString() }
+    { client_id: client.id, timer_type: 'loom',       last_reset_at: now.toISOString(), next_due_at: loomDue.toISOString() },
+    { client_id: client.id, timer_type: 'call_offer', last_reset_at: now.toISOString(), next_due_at: callDue.toISOString() }
   ]);
   if (tErr) throw tErr;
 
@@ -37,11 +39,12 @@ export async function logTouchpoint(clientId, type, content = null) {
 
 export async function resetTimer(clientId, timerType) {
   const { data: client, error: cErr } = await supabase
-    .from('clients').select('status').eq('id', clientId).single();
+    .from('clients').select('status, service_start_date, created_at').eq('id', clientId).single();
   if (cErr) throw cErr;
 
   const now = new Date();
-  const nextDue = computeNextDue(now, client.status);
+  const ssd = client.service_start_date || client.created_at;
+  const nextDue = computeNextDue(now, client.status, timerType, ssd);
   const { error } = await supabase
     .from('timers')
     .update({
@@ -56,11 +59,15 @@ export async function resetTimer(clientId, timerType) {
 
 // When a client's status changes, recalc both timers' next_due_at from last_reset_at using new interval.
 export async function recalcTimersForStatusChange(clientId, newStatus) {
+  const { data: client, error: cErr } = await supabase
+    .from('clients').select('service_start_date, created_at').eq('id', clientId).single();
+  const ssd = client?.service_start_date || client?.created_at || null;
+
   const { data: timers, error } = await supabase
     .from('timers').select('*').eq('client_id', clientId);
   if (error) throw error;
   const updates = timers.map(t => {
-    const nextDue = computeNextDue(t.last_reset_at, newStatus);
+    const nextDue = computeNextDue(t.last_reset_at, newStatus, t.timer_type, ssd);
     return supabase.from('timers').update({
       next_due_at: nextDue.toISOString(),
       is_overdue: new Date(nextDue) <= new Date()

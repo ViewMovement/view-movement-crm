@@ -15,9 +15,10 @@ const OPS_ITEMS = [
 ];
 
 const RETENTION_ITEMS = [
-  { to: '/save-queue', label: 'Save Queue', icon: '◆', shortcut: 'S' },
-  { to: '/flags',      label: 'Flags',      icon: '⚑', shortcut: 'F' },
-  { to: '/digest',     label: 'Digest',     icon: '◈', shortcut: 'G' }
+  { to: '/retention',   label: 'Retention',  icon: '◎', shortcut: 'N' },
+  { to: '/save-queue',  label: 'Save Queue', icon: '◆', shortcut: 'S' },
+  { to: '/flags',       label: 'Flags',      icon: '⚑', shortcut: 'F' },
+  { to: '/digest',      label: 'Digest',     icon: '◈', shortcut: 'G' }
 ];
 
 const INSIGHT_ITEMS = [

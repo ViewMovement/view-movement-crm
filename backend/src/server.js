@@ -12,6 +12,7 @@ import slackRouter from './routes/slack.js';
 import rolesRouter from './routes/roles.js';
 import reviewsRouter from './routes/reviews.js';
 import loomsRouter from './routes/looms.js';
+import goalsRouter from './routes/goals.js';
 import { requireAuth } from './lib/auth.js';
 import { startOnboardingPoller } from './jobs/onboardingSync.js';
 import { startCancellationPoller } from './jobs/cancellationSync.js';
@@ -48,6 +49,7 @@ app.use('/api/export', requireAuth, exportRouter);
 app.use('/api/roles', requireAuth, rolesRouter);
 app.use('/api/reviews', requireAuth, reviewsRouter);
 app.use('/api/looms', requireAuth, loomsRouter);
+app.use('/api/goals', requireAuth, goalsRouter);
 // Admin-guarded Slack trigger (seed-token) must be outside requireAuth
 app.post('/admin/slack/run-now', async (req, res) => {
   const token = req.header('x-seed-token');

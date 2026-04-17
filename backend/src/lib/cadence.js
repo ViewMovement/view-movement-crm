@@ -1,11 +1,22 @@
 // Cadence logic: intervals per status and helpers for next_due_at / overdue flag.
 
-export const INTERVAL_DAYS = {
+// Call-offer timers use status-based intervals (CSM owns calls)
+export const CALL_INTERVAL_DAYS = {
   green: 14,
   yellow: 10,
   red: 7,
-  churned: 7 // churned stays on the list with red-level urgency for save plan
+  churned: 7
 };
+
+// Loom timers use tenure-based intervals (retention specialist SOP)
+// First 90 days = every 14 days (highest churn window)
+// Day 91–300  = every 21 days (standard cadence)
+// Day 300+    = every 14 days (Month 10 retention zone — tighten up)
+export const LOOM_TENURE_INTERVALS = [
+  { maxDay: 90,   days: 14 },
+  { maxDay: 300,  days: 21 },
+  { maxDay: Infinity, days: 14 }
+];
 
 export const HEADS_UP_DAYS = 2;
 export const ONBOARDING_REMINDER_DAYS = 7;
@@ -16,12 +27,29 @@ export function addDays(date, days) {
   return new Date(new Date(date).getTime() + days * MS_PER_DAY);
 }
 
-export function intervalFor(status) {
-  return INTERVAL_DAYS[status] ?? INTERVAL_DAYS.green;
+export function callIntervalFor(status) {
+  return CALL_INTERVAL_DAYS[status] ?? CALL_INTERVAL_DAYS.green;
 }
 
-export function computeNextDue(lastResetAt, status) {
-  return addDays(lastResetAt, intervalFor(status));
+// Keep legacy alias for any code still using intervalFor
+export function intervalFor(status) {
+  return callIntervalFor(status);
+}
+
+export function loomIntervalFor(serviceStartDate) {
+  if (!serviceStartDate) return 14; // default to onboarding cadence
+  const tenure = Math.floor((Date.now() - new Date(serviceStartDate).getTime()) / MS_PER_DAY);
+  for (const tier of LOOM_TENURE_INTERVALS) {
+    if (tenure <= tier.maxDay) return tier.days;
+  }
+  return 14;
+}
+
+export function computeNextDue(lastResetAt, status, timerType = 'call_offer', serviceStartDate = null) {
+  const interval = timerType === 'loom'
+    ? loomIntervalFor(serviceStartDate)
+    : callIntervalFor(status);
+  return addDays(lastResetAt, interval);
 }
 
 export function isOverdue(nextDueAt, now = new Date()) {

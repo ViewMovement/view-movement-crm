@@ -28,6 +28,7 @@ export default function App() {
       if (e.key.toLowerCase() === 's' && !e.metaKey && !e.ctrlKey) nav('/save-queue');
       if (e.key.toLowerCase() === 'f' && !e.metaKey && !e.ctrlKey) nav('/flags');
       if (e.key.toLowerCase() === 'g' && !e.metaKey && !e.ctrlKey) nav('/digest');
+      if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey) nav('/retention');
       if (e.key.toLowerCase() === 'r' && !e.metaKey && !e.ctrlKey) nav('/reports');
       if (e.key === ',' && !e.metaKey && !e.ctrlKey) nav('/settings');
       if (e.key === '?' && !e.metaKey && !e.ctrlKey) { e.preventDefault(); setShortcutsOpen(true); }

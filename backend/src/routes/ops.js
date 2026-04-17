@@ -436,13 +436,20 @@ router.get('/day', async (req, res) => {
     const today = now.toISOString().slice(0, 10);
     const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
 
-    const [{ data: clients }, { data: timers }, { data: flags }, { data: todaysTps }, { data: routineRows }, { data: pulseItems }] = await Promise.all([
+    const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+    const [{ data: clients }, { data: timers }, { data: flags }, { data: todaysTps }, { data: routineRows }, { data: pulseItems }, { data: dueReviews }, { data: unrespondedLooms }, { data: missingDiscordLooms }] = await Promise.all([
       supabase.from('clients').select('*').neq('status', 'churned'),
       supabase.from('timers').select('*'),
       supabase.from('situation_flags').select('*').is('resolved_at', null),
       supabase.from('touchpoints').select('client_id,type,created_at').gte('created_at', startOfDay),
       supabase.from('daily_routine').select('*').eq('user_email', userEmail).eq('routine_date', today).maybeSingle(),
-      supabase.from('slack_pulse_items').select('*, channel:slack_channels(name, slack_channel_id)').is('seen_at', null).in('urgency', ['urgent', 'heads_up']).order('created_at', { ascending: false }).limit(15)
+      supabase.from('slack_pulse_items').select('*, channel:slack_channels(name, slack_channel_id)').is('seen_at', null).in('urgency', ['urgent', 'heads_up']).order('created_at', { ascending: false }).limit(15),
+      // Reviews due in next 7 days or overdue
+      supabase.from('client_reviews').select('*, clients(id, name, status, mrr)').in('status', ['upcoming', 'overdue', 'pending']).lte('due_at', new Date(Date.now() + 7 * 86400000).toISOString()).order('due_at', { ascending: true }).limit(20),
+      // Unresponded Looms older than 7 days
+      supabase.from('loom_entries').select('*, clients(id, name, status, mrr)').eq('client_responded', false).not('client_ask', 'is', null).lte('sent_at', sevenDaysAgo).order('sent_at', { ascending: true }).limit(20),
+      // Looms sent without Discord note in last 48 hours
+      supabase.from('loom_entries').select('*, clients(id, name)').eq('discord_note_sent', false).gte('sent_at', new Date(Date.now() - 48 * 3600000).toISOString()).order('sent_at', { ascending: false }).limit(20)
     ]);
 
     // Ensure routine row exists (defensive: tolerates missing table pre-migration)
@@ -479,8 +486,12 @@ router.get('/day', async (req, res) => {
         const completed = sopKeys.filter(k => steps[k]).length;
         const nextStep = ONBOARDING_STEPS.find(s => !steps[s.key]);
         if (completed < totalSteps) {
+          const tenureDays = Math.floor((Date.now() - new Date(c.service_start_date || c.created_at).getTime()) / 86400000);
           onboardingHeroes.push({
             client: c, completed, total: totalSteps,
+            expectations_loom_sent: !!c.expectations_loom_sent_at,
+            expectations_loom_overdue: !c.expectations_loom_sent_at && tenureDays >= 3,
+            tenure_days: tenureDays,
             next_step: nextStep ? { key: nextStep.key, label: nextStep.label, step: nextStep.step, phase: nextStep.phase,
               blocked: nextStep.gate === 'success_definition' && !c.success_definition } : null
           });
@@ -501,6 +512,18 @@ router.get('/day', async (req, res) => {
         if (tenureDays >= 330 && !hasM10Esc) {
           supabase.from('situation_flags').insert({ client_id: c.id, type: 'month10_escalation', detail: `Auto-escalated at day ${tenureDays} — no resolution on month 10 review` })
             .then(() => logTouchpoint(c.id, 'system', `Month 10 ESCALATION auto-flagged (day ${tenureDays})`))
+            .catch(() => {});
+        }
+      }
+
+      // Non-response auto-escalation: flag at 2+ consecutive unresponded Looms
+      if (c.status !== 'churned' && unrespondedLooms) {
+        const clientUnresponded = unrespondedLooms.filter(l => l.client_id === c.id);
+        if (clientUnresponded.length >= 2 && !cFlags.some(f => f.type === 'non_responsive')) {
+          supabase.from('situation_flags').insert({
+            client_id: c.id, type: 'non_responsive',
+            detail: `Auto-flagged: ${clientUnresponded.length} consecutive unresponded Looms`
+          }).then(() => logTouchpoint(c.id, 'system', `Non-responsive auto-flag: ${clientUnresponded.length} unresponded Looms`))
             .catch(() => {});
         }
       }
@@ -588,6 +611,15 @@ router.get('/day', async (req, res) => {
     const isCheckDay = dom === 1 || dom === 14;
     const relevantDay = dom > 14 ? 14 : 1;
 
+    // Expectations Loom alerts: onboarding clients past day 3 without one
+    const expectationsLoomAlerts = onboardingHeroes
+      .filter(h => h.expectations_loom_overdue)
+      .map(h => ({
+        client: { id: h.client.id, name: h.client.name, status: h.client.status, mrr: h.client.mrr },
+        tenure_days: h.tenure_days,
+        label: `Expectations Loom overdue for ${h.client.name} (day ${h.tenure_days})`
+      }));
+
     res.json({
       greeting: greetingFor(now),
       user_email: userEmail,
@@ -604,13 +636,32 @@ router.get('/day', async (req, res) => {
         phase_3_done: !!routine?.phase_3_done_at,
         phase_4_done: !!routine?.phase_4_done_at
       },
+      // Retention specialist queues
+      reviews_due: (dueReviews || []).map(r => ({
+        id: r.id, review_type: r.review_type, due_at: r.due_at, status: r.status,
+        client: r.clients || { id: r.client_id }
+      })),
+      unresponded_looms: (unrespondedLooms || []).map(l => ({
+        id: l.id, topic: l.topic, client_ask: l.client_ask, sent_at: l.sent_at, loom_url: l.loom_url,
+        days_since: Math.floor((Date.now() - new Date(l.sent_at).getTime()) / 86400000),
+        client: l.clients || { id: l.client_id }
+      })),
+      missing_discord_notes: (missingDiscordLooms || []).map(l => ({
+        id: l.id, topic: l.topic, sent_at: l.sent_at,
+        client: l.clients || { id: l.client_id }
+      })),
+      expectations_loom_alerts: expectationsLoomAlerts,
       counts: {
         urgent: opsQueue.length,
         pulse: (pulseItems || []).length,
         onboarding_active: onboardingHeroes.length,
         retention_due: retentionDue,
         retention_done: retentionDone,
-        open_flags: (flags || []).length
+        open_flags: (flags || []).length,
+        reviews_due: (dueReviews || []).length,
+        unresponded_looms: (unrespondedLooms || []).length,
+        missing_discord_notes: (missingDiscordLooms || []).length,
+        expectations_loom_overdue: expectationsLoomAlerts.length
       }
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
