@@ -17,26 +17,65 @@ router.get('/', async (req, res) => {
     if (error) throw error;
 
     const ids = clients.map(c => c.id);
-    const [{ data: timers }, { data: touchpoints }] = await Promise.all([
+    const [{ data: timers }, { data: touchpoints }, { data: openFlags }, { data: dueReviews }] = await Promise.all([
       supabase.from('timers').select('*').in('client_id', ids),
-      supabase.from('touchpoints').select('*').in('client_id', ids).order('created_at', { ascending: false })
+      supabase.from('touchpoints').select('*').in('client_id', ids).order('created_at', { ascending: false }),
+      supabase.from('situation_flags').select('id, client_id, type').is('resolved_at', null),
+      supabase.from('client_reviews').select('id, client_id, review_type, due_at, status')
+        .in('status', ['pending', 'upcoming', 'overdue'])
+        .lte('due_at', new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10))
     ]);
 
     const byClient = {};
-    for (const c of clients) byClient[c.id] = { ...c, timers: {}, last_touchpoint: null };
+    for (const c of clients) byClient[c.id] = { ...c, timers: {}, last_touchpoint: null, open_flags: 0, reviews_due: 0 };
     for (const t of timers || []) byClient[t.client_id].timers[t.timer_type] = t;
     for (const tp of touchpoints || []) {
       if (!byClient[tp.client_id].last_touchpoint) byClient[tp.client_id].last_touchpoint = tp;
     }
+    for (const f of openFlags || []) {
+      if (byClient[f.client_id]) byClient[f.client_id].open_flags++;
+    }
+    for (const r of dueReviews || []) {
+      if (byClient[r.client_id]) byClient[r.client_id].reviews_due++;
+    }
 
-    const enriched = Object.values(byClient).map(c => ({
-      ...c,
-      days_until_billing: daysUntilBilling(c.billing_date),
-      onboarding_reminder_active:
-        !c.onboarding_reminder_dismissed &&
-        !c.onboarding_call_completed &&
-        new Date() >= addDays(c.created_at, ONBOARDING_REMINDER_DAYS)
-    }));
+    const now = new Date();
+    const enriched = Object.values(byClient).map(c => {
+      // Compute service cycle stage
+      const loom = c.timers.loom;
+      const call = c.timers.call_offer;
+      const loomOverdue = loom && (loom.is_overdue || new Date(loom.next_due_at) <= now);
+      const callOverdue = call && (call.is_overdue || new Date(call.next_due_at) <= now);
+      const loomDueSoon = loom && !loomOverdue && daysUntil(loom.next_due_at) <= 3;
+      const callDueSoon = call && !callOverdue && daysUntil(call.next_due_at) <= 3;
+
+      let cycle_stage;
+      if (c.status === 'churned') {
+        cycle_stage = 'churned';
+      } else if (c.cohort === 'new' || c.onboarding_flag) {
+        cycle_stage = 'onboarding';
+      } else if (c.open_flags > 0) {
+        cycle_stage = 'flagged';
+      } else if (loomOverdue || loomDueSoon) {
+        cycle_stage = 'needs_loom';
+      } else if (callOverdue || callDueSoon) {
+        cycle_stage = 'needs_call';
+      } else if (c.reviews_due > 0) {
+        cycle_stage = 'review_due';
+      } else {
+        cycle_stage = 'all_current';
+      }
+
+      return {
+        ...c,
+        cycle_stage,
+        days_until_billing: daysUntilBilling(c.billing_date),
+        onboarding_reminder_active:
+          !c.onboarding_reminder_dismissed &&
+          !c.onboarding_call_completed &&
+          now >= addDays(c.created_at, ONBOARDING_REMINDER_DAYS)
+      };
+    });
     res.json(enriched);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
