@@ -36,7 +36,9 @@ export const SITUATION_TYPES = {
   sheet_mismatch:         { label: 'Master Sheet mismatch',     playbook: ['Verify package vs quota', 'Fix sheet entry', 'Notify PM'] },
   scripted_only:          { label: 'Scripted-only client',      playbook: ['Confirm boundaries', 'Do not push posting cadence', 'Different cadence tier'] },
   out_of_scope:           { label: 'Out-of-scope request',      playbook: ['Clarify package limits', 'Offer upsell', 'Decline politely if not possible'] },
-  failed_payment:         { label: 'Failed payment',            playbook: ['Check Stripe', 'Notify client', 'Pause delivery if 7+ days overdue'] }
+  failed_payment:         { label: 'Failed payment',            playbook: ['Check Stripe', 'Notify client', 'Pause delivery if 7+ days overdue'] },
+  month10_review:         { label: 'Month 10 retention review', playbook: ['Schedule retention call', 'Review success definition progress', 'Prepare renewal options', 'Draft retention proposal'] },
+  month10_escalation:     { label: 'Month 10 escalation (day 330)', playbook: ['Urgent retention call', 'Executive outreach', 'Finalize retention offer', 'Prepare churn contingency'] }
 };
 
 // ---------- Triage (Ops home) ----------
@@ -312,7 +314,9 @@ const SAVE_PLAN_TRIGGERS = {
   missed_posting:        { proposal: 'Missed posting pattern — investigate root cause, verify contractor delivery, confirm client expectations.' },
   overdue_batch:         { proposal: 'Batch overdue >3 days — reassign if needed, update client on revised timeline.' },
   delayed_onboarding:    { proposal: 'Onboarding stalled — personal outreach, reoffer call slots, consider direct call.' },
-  out_of_scope:          { proposal: 'Out-of-scope request — clarify package limits, present upsell option if appropriate.' }
+  out_of_scope:          { proposal: 'Out-of-scope request — clarify package limits, present upsell option if appropriate.' },
+  month10_review:        { proposal: 'Month 10 proactive retention — schedule retention call, review success definition progress, prepare renewal options.' },
+  month10_escalation:    { proposal: 'URGENT Month 10 escalation — executive outreach required, finalize retention offer, prepare churn contingency plan.' }
 };
 
 router.post('/flags', async (req, res) => {
@@ -455,7 +459,7 @@ router.get('/day', async (req, res) => {
     const flagsByClient = {};
     for (const f of flags || []) (flagsByClient[f.client_id] = flagsByClient[f.client_id] || []).push(f);
 
-    const CRITICAL_FLAGS = new Set(['failed_payment','missed_posting','non_responsive','overdue_batch']);
+    const CRITICAL_FLAGS = new Set(['failed_payment','missed_posting','non_responsive','overdue_batch','month10_review','month10_escalation']);
 
     const opsQueue = [];          // urgent flags only (no looms/calls)
     const retentionQueue = [];     // loom/call timer actions
@@ -483,6 +487,24 @@ router.get('/day', async (req, res) => {
         }
       }
 
+      // Month 10 retention protocol: auto-flag at day 300, escalate at day 330
+      if (c.status !== 'churned' && c.created_at) {
+        const tenureDays = Math.floor((Date.now() - new Date(c.service_start_date || c.created_at).getTime()) / 86400000);
+        const hasM10 = cFlags.some(f => f.type === 'month10_review');
+        const hasM10Esc = cFlags.some(f => f.type === 'month10_escalation');
+        if (tenureDays >= 300 && !hasM10) {
+          // Auto-create month 10 review flag (fire-and-forget)
+          supabase.from('situation_flags').insert({ client_id: c.id, type: 'month10_review', detail: `Auto-generated at day ${tenureDays}` })
+            .then(() => logTouchpoint(c.id, 'system', `Month 10 retention review auto-flagged (day ${tenureDays})`))
+            .catch(() => {});
+        }
+        if (tenureDays >= 330 && !hasM10Esc) {
+          supabase.from('situation_flags').insert({ client_id: c.id, type: 'month10_escalation', detail: `Auto-escalated at day ${tenureDays} — no resolution on month 10 review` })
+            .then(() => logTouchpoint(c.id, 'system', `Month 10 ESCALATION auto-flagged (day ${tenureDays})`))
+            .catch(() => {});
+        }
+      }
+
       // Critical flags → ops queue
       const crit = cFlags.find(f => CRITICAL_FLAGS.has(f.type));
       if (crit) {
@@ -490,7 +512,9 @@ router.get('/day', async (req, res) => {
           failed_payment: `Resolve failed payment for ${c.name}`,
           missed_posting: `Check posting status for ${c.name}`,
           non_responsive: `Re-engage ${c.name} (non-responsive 48h+)`,
-          overdue_batch: `Unblock overdue batch for ${c.name}`
+          overdue_batch: `Unblock overdue batch for ${c.name}`,
+          month10_review: `Month 10 retention review — ${c.name}`,
+          month10_escalation: `URGENT: Month 10 escalation — ${c.name}`
         };
         opsQueue.push({
           id: `${c.id}:flag`,

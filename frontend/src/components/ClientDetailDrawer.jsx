@@ -19,7 +19,9 @@ const SITUATION_TYPES = [
   { key: 'sheet_mismatch',        label: 'Sheet mismatch' },
   { key: 'scripted_only',         label: 'Scripted only' },
   { key: 'out_of_scope',          label: 'Out of scope' },
-  { key: 'failed_payment',        label: 'Failed payment' }
+  { key: 'failed_payment',        label: 'Failed payment' },
+  { key: 'month10_review',       label: 'Month 10 retention review' },
+  { key: 'month10_escalation',   label: 'Month 10 escalation' }
 ];
 
 export default function ClientDetailDrawer({ clientId, onClose }) {
