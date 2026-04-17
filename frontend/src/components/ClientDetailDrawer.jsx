@@ -110,8 +110,17 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
   }
 
   async function toggleOnboardingStep(step) {
-    await api.toggleOnboarding(clientId, step);
-    load(); refresh(true);
+    try {
+      await api.toggleOnboarding(clientId, step);
+      load(); refresh(true);
+    } catch (e) {
+      // Handle gate_blocked error from SOP step 3
+      if (e.message?.includes('gate_blocked') || e.message?.includes('Success definition')) {
+        show({ message: 'Fill in the Success Definition above before completing this step.', tone: 'warning' });
+      } else {
+        show({ message: 'Error: ' + e.message });
+      }
+    }
   }
 
   async function toggleCloseoutStep(step) {
@@ -234,7 +243,8 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
               <Stepper title="Onboarding"
                 defs={onboardingDefs}
                 done={client.onboarding_steps || {}}
-                onToggle={toggleOnboardingStep} />
+                onToggle={toggleOnboardingStep}
+                client={client} />
             ) : null}
 
             {/* Closeout stepper (churned only) */}
@@ -592,9 +602,15 @@ function SuccessDefinitionBlock({ client, onSaveDefinition, onSaveBaseline, onSa
   );
 }
 
-function Stepper({ title, defs, done, onToggle }) {
+function Stepper({ title, defs, done, onToggle, client }) {
   if (!defs.length) return null;
   const completed = defs.filter(s => done[s.key]).length;
+  // Group steps by phase if phases exist
+  const hasPhases = defs.some(s => s.phase);
+  let lastPhase = null;
+
+  const PHASE_LABELS = { pre: 'Pre-onboarding', discovery: 'Discovery', setup: 'Setup', launch: 'Launch' };
+
   return (
     <div>
       <div className="text-xs uppercase tracking-wide text-slate-500 mb-2 flex items-center justify-between">
@@ -607,16 +623,36 @@ function Stepper({ title, defs, done, onToggle }) {
       <ol className="space-y-1">
         {defs.map((s, i) => {
           const isDone = !!done[s.key];
+          // Check if this step is gated
+          const isGated = s.gate === 'success_definition' && client && !client.success_definition && !isDone;
+          // Phase divider
+          const showPhase = hasPhases && s.phase && s.phase !== lastPhase;
+          if (showPhase) lastPhase = s.phase;
+
           return (
             <li key={s.key}>
+              {showPhase && (
+                <div className="text-[10px] uppercase tracking-wider text-slate-600 mt-2 mb-1 pl-1">
+                  {PHASE_LABELS[s.phase] || s.phase}
+                </div>
+              )}
               <button onClick={() => onToggle(s.key)}
+                disabled={isGated}
+                title={isGated ? 'Fill in the Success Definition first' : ''}
                 className={`w-full flex items-center gap-3 rounded-md px-2.5 py-1.5 text-sm text-left transition ${
-                  isDone ? 'bg-emerald-500/5 text-slate-300' : 'hover:bg-ink-800 text-slate-200'
+                  isDone ? 'bg-emerald-500/5 text-slate-300'
+                    : isGated ? 'opacity-50 cursor-not-allowed text-slate-400'
+                    : 'hover:bg-ink-800 text-slate-200'
                 }`}>
                 <span className={`h-4 w-4 rounded-full border grid place-items-center text-[10px] shrink-0 ${
-                  isDone ? 'bg-emerald-500 border-emerald-500 text-ink-950' : 'border-ink-600 text-slate-500'
-                }`}>{isDone ? '✓' : i + 1}</span>
-                <span className={`flex-1 ${isDone ? 'line-through text-slate-500' : ''}`}>{s.label}</span>
+                  isDone ? 'bg-emerald-500 border-emerald-500 text-ink-950'
+                    : isGated ? 'border-amber-500/50 text-amber-500'
+                    : 'border-ink-600 text-slate-500'
+                }`}>{isDone ? '✓' : isGated ? '!' : (s.step || i + 1)}</span>
+                <span className={`flex-1 ${isDone ? 'line-through text-slate-500' : ''}`}>
+                  {s.label}
+                  {isGated && <span className="text-[10px] text-amber-400 ml-2">requires success definition</span>}
+                </span>
               </button>
             </li>
           );

@@ -88,12 +88,19 @@ export default function Triage() {
                   <div className="space-y-1.5">
                     {onboarding.map(o => (
                       <button key={o.client.id} onClick={() => setOpenId(o.client.id)}
-                        className="w-full flex items-center gap-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 hover:bg-emerald-500/10 transition text-left">
+                        className={`w-full flex items-center gap-3 rounded-lg border px-4 py-3 hover:bg-emerald-500/10 transition text-left ${
+                          o.next_step?.blocked ? 'border-amber-500/20 bg-amber-500/5' : 'border-emerald-500/20 bg-emerald-500/5'
+                        }`}>
                         <StatusDot status={o.client.status} label={false} />
                         <div className="flex-1 min-w-0">
                           <div className="font-medium truncate">{o.client.name}</div>
-                          <div className="text-xs text-emerald-300/70 mt-0.5">
-                            Step {o.completed}/{o.total} complete
+                          <div className="text-xs mt-0.5">
+                            <span className="text-emerald-300/70">{o.completed}/{o.total}</span>
+                            {o.next_step && (
+                              <span className={o.next_step.blocked ? 'text-amber-400 ml-2' : 'text-slate-500 ml-2'}>
+                                Next: {o.next_step.label}{o.next_step.blocked ? ' (blocked)' : ''}
+                              </span>
+                            )}
                           </div>
                         </div>
                         {canSeeFinancials && o.client.mrr ? <span className="text-xs tabular-nums text-emerald-300/80 font-medium shrink-0">${fmtMRR(o.client.mrr, { compact: true })}</span> : null}

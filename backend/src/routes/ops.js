@@ -8,13 +8,13 @@ const router = Router();
 
 // ---------- Constants ----------
 export const ONBOARDING_STEPS = [
-  { key: 'form_sent',            label: 'Onboarding form sent' },
-  { key: 'form_filled',          label: 'Form filled out' },
-  { key: 'call_scheduled',       label: 'Onboarding call scheduled' },
-  { key: 'call_completed',       label: 'Onboarding call completed' },
-  { key: 'discord_built',        label: 'Discord team built' },
-  { key: 'content_source_ready', label: 'Content source set up' },
-  { key: 'work_started',         label: 'Work started (reels in progress)' }
+  { key: 'form_sent',                     step: 1, label: 'Onboarding form sent',              phase: 'pre' },
+  { key: 'form_filled',                   step: 2, label: 'Form filled out',                   phase: 'pre' },
+  { key: 'success_definition_captured',   step: 3, label: 'Success definition captured',       phase: 'discovery', gate: 'success_definition' },
+  { key: 'onboarding_call_completed',     step: 4, label: 'Onboarding call completed',         phase: 'discovery' },
+  { key: 'discord_built',                 step: 5, label: 'Discord team built',                phase: 'setup' },
+  { key: 'content_source_ready',          step: 6, label: 'Content source set up',             phase: 'setup' },
+  { key: 'work_started',                  step: 7, label: 'Work started (reels in progress)',  phase: 'launch' }
 ];
 
 export const CLOSEOUT_STEPS = [
@@ -107,9 +107,15 @@ router.get('/triage', async (_req, res) => {
       // Onboarding: cohort=new or has incomplete onboarding steps
       if (c.cohort === 'new') {
         const steps = c.onboarding_steps || {};
-        const total = 7;
-        const completed = Object.keys(steps).length;
-        onboarding.push({ client: c, completed, total, flags: cFlags });
+        const sopKeys = ONBOARDING_STEPS.map(s => s.key);
+        const total = sopKeys.length;
+        const completed = sopKeys.filter(k => steps[k]).length;
+        const nextStep = ONBOARDING_STEPS.find(s => !steps[s.key]);
+        onboarding.push({
+          client: c, completed, total, flags: cFlags,
+          next_step: nextStep ? { key: nextStep.key, label: nextStep.label, step: nextStep.step, phase: nextStep.phase,
+            blocked: nextStep.gate === 'success_definition' && !c.success_definition } : null
+        });
       }
 
       // Retention: loom/call timer actions
@@ -176,18 +182,52 @@ router.get('/onboarding-steps', (_req, res) => res.json(ONBOARDING_STEPS));
 router.post('/clients/:id/onboarding/:step/toggle', async (req, res) => {
   try {
     const { id, step } = req.params;
-    const validKeys = ONBOARDING_STEPS.map(s => s.key);
-    if (!validKeys.includes(step)) return res.status(400).json({ error: 'bad step' });
-    const { data: client, error } = await supabase.from('clients').select('onboarding_steps').eq('id', id).single();
+    const stepDef = ONBOARDING_STEPS.find(s => s.key === step);
+    if (!stepDef) return res.status(400).json({ error: 'bad step' });
+
+    const { data: client, error } = await supabase.from('clients')
+      .select('onboarding_steps, success_definition')
+      .eq('id', id).single();
     if (error) throw error;
+
+    // Gate check: step 3 requires success_definition to be captured first
+    if (stepDef.gate === 'success_definition' && !client.success_definition) {
+      return res.status(422).json({
+        error: 'gate_blocked',
+        message: 'Success definition must be captured before completing this step. Open the client drawer and fill in the Success Definition field first.',
+        gate: 'success_definition'
+      });
+    }
+
     const steps = { ...(client.onboarding_steps || {}) };
-    if (steps[step]) delete steps[step];
-    else steps[step] = new Date().toISOString();
+    const wasComplete = !!steps[step];
+    if (wasComplete) {
+      delete steps[step];
+      // Remove from completions table
+      await supabase.from('onboarding_step_completions').delete()
+        .eq('client_id', id).eq('step_key', step);
+    } else {
+      steps[step] = new Date().toISOString();
+      // Insert into completions table (ignore conflict for safety)
+      await supabase.from('onboarding_step_completions').upsert({
+        client_id: id,
+        step_key: step,
+        step_number: stepDef.step,
+        completed_at: steps[step],
+        completed_by: req.user?.email || 'unknown'
+      }, { onConflict: 'client_id,step_key' }).catch(() => {});
+    }
+
+    const validKeys = ONBOARDING_STEPS.map(s => s.key);
     const allComplete = validKeys.every(k => steps[k]);
     const patch = { onboarding_steps: steps };
-    if (allComplete) { patch.cohort = 'active_happy'; patch.onboarding_call_completed = true; }
+    if (allComplete) {
+      patch.cohort = 'active_happy';
+      patch.onboarding_call_completed = true;
+      patch.onboarding_complete_at = new Date().toISOString();
+    }
     await supabase.from('clients').update(patch).eq('id', id);
-    await logTouchpoint(id, 'system', `Onboarding: ${steps[step] ? 'completed' : 'reopened'} "${step}"`);
+    await logTouchpoint(id, 'system', `Onboarding: ${!wasComplete ? 'completed' : 'reopened'} "${stepDef.label}"`);
     res.json({ ok: true, steps, all_complete: allComplete });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -395,10 +435,16 @@ router.get('/day', async (req, res) => {
       // Onboarding hero: cohort=new OR steps incomplete within first 14 days
       if (c.cohort === 'new' || (c.created_at && (Date.now() - new Date(c.created_at).getTime()) < 14 * 86400000)) {
         const steps = c.onboarding_steps || {};
-        const totalSteps = 7;
-        const completed = Object.keys(steps).length;
+        const sopKeys = ONBOARDING_STEPS.map(s => s.key);
+        const totalSteps = sopKeys.length;
+        const completed = sopKeys.filter(k => steps[k]).length;
+        const nextStep = ONBOARDING_STEPS.find(s => !steps[s.key]);
         if (completed < totalSteps) {
-          onboardingHeroes.push({ client: c, completed, total: totalSteps });
+          onboardingHeroes.push({
+            client: c, completed, total: totalSteps,
+            next_step: nextStep ? { key: nextStep.key, label: nextStep.label, step: nextStep.step, phase: nextStep.phase,
+              blocked: nextStep.gate === 'success_definition' && !c.success_definition } : null
+          });
         }
       }
 

@@ -198,11 +198,20 @@ export default function DayFlow() {
                 <div className="space-y-2">
                   {onboarding_heroes.map(h => (
                     <button key={h.client.id} onClick={() => setOpenId(h.client.id)}
-                      className="w-full flex items-center gap-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-4 py-3 hover:bg-emerald-500/10 transition text-left">
-                      <span className="text-lg">🌱</span>
+                      className={`w-full flex items-center gap-4 rounded-lg border px-4 py-3 hover:bg-emerald-500/10 transition text-left ${
+                        h.next_step?.blocked ? 'border-amber-500/30 bg-amber-500/5' : 'border-emerald-500/30 bg-emerald-500/5'
+                      }`}>
+                      <span className="text-lg">{h.next_step?.blocked ? '⚠' : '🌱'}</span>
                       <div className="flex-1 min-w-0">
                         <div className="font-medium text-slate-100 truncate">{h.client.name}</div>
-                        <div className="text-xs text-emerald-300 mt-0.5">{h.completed}/{h.total} onboarding steps</div>
+                        <div className="text-xs mt-0.5">
+                          <span className="text-emerald-300">{h.completed}/{h.total}</span>
+                          {h.next_step && (
+                            <span className={h.next_step.blocked ? 'text-amber-400 ml-2' : 'text-slate-500 ml-2'}>
+                              Next: {h.next_step.label}{h.next_step.blocked ? ' (blocked)' : ''}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="h-1 w-20 rounded-full bg-ink-800 overflow-hidden shrink-0">
                         <div className="h-full bg-emerald-500" style={{ width: `${(h.completed / h.total) * 100}%` }} />
