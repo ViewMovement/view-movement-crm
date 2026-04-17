@@ -134,9 +134,13 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
   }
 
   async function addFlag(type) {
-    await api.createFlag({ client_id: clientId, type });
+    const result = await api.createFlag({ client_id: clientId, type });
     load(); refresh(true);
-    show({ message: 'Flag raised.' });
+    if (result?.save_plan) {
+      show({ message: 'Flag raised + save plan auto-created.' });
+    } else {
+      show({ message: 'Flag raised.' });
+    }
   }
 
   async function resolveFlag(id) {

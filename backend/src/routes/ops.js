@@ -304,15 +304,50 @@ router.get('/flags', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Flag types that auto-create a save plan when raised
+const SAVE_PLAN_TRIGGERS = {
+  non_responsive:        { proposal: 'Client non-responsive — re-engage with Loom + call offer. If no response in 7 days, escalate to retention strategist.' },
+  failed_payment:        { proposal: 'Failed payment — contact client, verify billing info, pause delivery if unresolved after 7 days.' },
+  retention_opportunity: { proposal: 'Retention signal detected — draft save proposal, schedule strategist call, present options within 48h.' },
+  missed_posting:        { proposal: 'Missed posting pattern — investigate root cause, verify contractor delivery, confirm client expectations.' },
+  overdue_batch:         { proposal: 'Batch overdue >3 days — reassign if needed, update client on revised timeline.' },
+  delayed_onboarding:    { proposal: 'Onboarding stalled — personal outreach, reoffer call slots, consider direct call.' },
+  out_of_scope:          { proposal: 'Out-of-scope request — clarify package limits, present upsell option if appropriate.' }
+};
+
 router.post('/flags', async (req, res) => {
   try {
     const { client_id, type, detail } = req.body || {};
     if (!client_id || !SITUATION_TYPES[type]) return res.status(400).json({ error: 'bad input' });
-    const { data, error } = await supabase
+    const { data: flag, error } = await supabase
       .from('situation_flags').insert({ client_id, type, detail }).select().single();
     if (error) throw error;
     await logTouchpoint(client_id, 'system', `Flag raised: ${SITUATION_TYPES[type].label}${detail ? ` — ${detail}` : ''}`);
-    res.status(201).json(data);
+
+    // Auto-create save plan if this flag type triggers one
+    let save_plan = null;
+    if (SAVE_PLAN_TRIGGERS[type]) {
+      // Check if there's already an active (non-completed/failed) save plan for this client
+      const { data: existing } = await supabase.from('save_plans')
+        .select('id').eq('client_id', client_id)
+        .in('status', ['proposed', 'active', 'approved'])
+        .limit(1);
+      if (!existing || existing.length === 0) {
+        const { data: sp } = await supabase.from('save_plans').insert({
+          client_id,
+          proposal: SAVE_PLAN_TRIGGERS[type].proposal + (detail ? `\n\nContext: ${detail}` : ''),
+          owner: req.user?.email || null,
+          status: 'proposed',
+          trigger_flag_id: flag.id
+        }).select().single();
+        save_plan = sp;
+        if (sp) {
+          await logTouchpoint(client_id, 'system', `Save plan auto-created from flag: ${SITUATION_TYPES[type].label}`);
+        }
+      }
+    }
+
+    res.status(201).json({ flag, save_plan });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
