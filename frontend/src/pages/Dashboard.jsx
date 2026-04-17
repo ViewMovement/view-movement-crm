@@ -10,12 +10,13 @@ import { fmtMRR, sumMRR } from '../lib/format.js';
 export default function Dashboard() {
   const [clients, setClients] = useState([]);
   const [today, setToday] = useState([]);
+  const [metrics, setMetrics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState(null);
 
   const load = useCallback(async () => {
-    const [c, t] = await Promise.all([api.listClients(), api.todayActions()]);
-    setClients(c); setToday(t); setLoading(false);
+    const [c, t, m] = await Promise.all([api.listClients(), api.todayActions(), api.metrics().catch(() => null)]);
+    setClients(c); setToday(t); setMetrics(m); setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -100,6 +101,51 @@ export default function Dashboard() {
           total={stats.activeMRR}
         />
       </section>
+
+      {/* SOP Compliance Metrics */}
+      {metrics?.kpis && (
+        <section className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          <KPI
+            label="Success Def. Compliance"
+            value={`${metrics.kpis.phase_compliance_pct}%`}
+            sub="clients past day 14 with SD"
+            tone={metrics.kpis.phase_compliance_pct >= 80 ? 'emerald' : metrics.kpis.phase_compliance_pct >= 50 ? 'amber' : 'rose'} />
+          <KPI
+            label="Onboarding Compliance"
+            value={`${metrics.kpis.onboarding_compliance_pct}%`}
+            sub="clients with all 7 steps done"
+            tone={metrics.kpis.onboarding_compliance_pct >= 80 ? 'emerald' : metrics.kpis.onboarding_compliance_pct >= 50 ? 'amber' : 'rose'} />
+          <KPI
+            label="Median Tenure"
+            value={`${metrics.kpis.median_tenure_days}d`}
+            sub={`≈ ${(metrics.kpis.median_tenure_days / 30).toFixed(1)} months`}
+            tone="sky" />
+          <KPI
+            label="Reviews Due"
+            value={String(metrics.kpis.reviews_due)}
+            sub={metrics.kpis.reviews_overdue > 0 ? `${metrics.kpis.reviews_overdue} overdue` : 'none overdue'}
+            tone={metrics.kpis.reviews_overdue > 0 ? 'rose' : 'emerald'} />
+          <KPI
+            label="Save Rate"
+            value={metrics.kpis.save_rate != null ? `${metrics.kpis.save_rate}%` : '—'}
+            sub={`${metrics.kpis.saves_won || 0} won · ${metrics.kpis.saves_lost || 0} lost`}
+            tone={metrics.kpis.save_rate >= 60 ? 'emerald' : metrics.kpis.save_rate >= 40 ? 'amber' : 'rose'} />
+        </section>
+      )}
+
+      {/* Cancellation Reasons */}
+      {metrics?.cancellation_reasons?.length > 0 && (
+        <section>
+          <div className="text-[11px] uppercase tracking-wider text-slate-500 mb-2">Top cancellation reasons</div>
+          <div className="flex gap-2 flex-wrap">
+            {metrics.cancellation_reasons.map(r => (
+              <span key={r.reason} className="px-3 py-1.5 rounded-full border border-ink-700 bg-ink-900 text-sm text-slate-300">
+                {r.reason} <span className="text-slate-500 ml-1">×{r.count}</span>
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Top at-risk accounts (dollar-weighted) */}
       {stats.topAtRisk.length > 0 && (

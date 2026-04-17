@@ -808,6 +808,60 @@ router.get('/metrics', async (_req, res) => {
       return d > addDays(day7, -7) && d <= day7;
     }).length;
 
+    // -- SOP Change 7: additional dashboard metrics --
+
+    // Cancellation reasons (from churned clients' reason field)
+    const cancellationReasons = {};
+    for (const c of clients || []) {
+      if (c.status === 'churned' && c.reason) {
+        const r = c.reason.trim().toLowerCase();
+        cancellationReasons[r] = (cancellationReasons[r] || 0) + 1;
+      }
+    }
+    const topCancellationReasons = Object.entries(cancellationReasons)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([reason, count]) => ({ reason, count }));
+
+    // Phase compliance % (clients with success_definition captured within 14 days)
+    const eligibleForSD = (clients || []).filter(c => c.status !== 'churned' && c.created_at &&
+      (Date.now() - new Date(c.created_at).getTime()) > 14 * 86400000);
+    const withSD = eligibleForSD.filter(c => c.success_definition);
+    const phaseCompliancePct = eligibleForSD.length > 0
+      ? Math.round((withSD.length / eligibleForSD.length) * 100) : 100;
+
+    // Median tenure (days) of active clients
+    const activeTenures = (clients || [])
+      .filter(c => c.status !== 'churned')
+      .map(c => Math.floor((Date.now() - new Date(c.service_start_date || c.created_at).getTime()) / 86400000))
+      .sort((a, b) => a - b);
+    const medianTenure = activeTenures.length > 0
+      ? activeTenures[Math.floor(activeTenures.length / 2)] : 0;
+
+    // Reviews due (from client_reviews table)
+    let reviewsDue = 0;
+    let reviewsOverdue = 0;
+    try {
+      const nextWeek = addDays(now, 7).toISOString().slice(0, 10);
+      const today = now.toISOString().slice(0, 10);
+      const { data: dueReviews } = await supabase.from('client_reviews')
+        .select('id, due_at, status')
+        .in('status', ['pending', 'upcoming', 'overdue'])
+        .lte('due_at', nextWeek);
+      reviewsDue = (dueReviews || []).length;
+      reviewsOverdue = (dueReviews || []).filter(r => r.due_at < today).length;
+    } catch {}
+
+    // Onboarding compliance (% of new clients with all 7 steps done within 14 days)
+    const onboardingEligible = (clients || []).filter(c =>
+      c.created_at && (Date.now() - new Date(c.created_at).getTime()) > 14 * 86400000 && c.status !== 'churned');
+    const onboardingComplete = onboardingEligible.filter(c => {
+      const steps = c.onboarding_steps || {};
+      return ONBOARDING_STEPS.every(s => steps[s.key]);
+    });
+    const onboardingCompliancePct = onboardingEligible.length > 0
+      ? Math.round((onboardingComplete.length / onboardingEligible.length) * 100) : 100;
+
     res.json({
       kpis: {
         active_clients: activeTotal,
@@ -822,13 +876,20 @@ router.get('/metrics', async (_req, res) => {
         saves_lost: savesLost,
         churned_recent: churnedRecent,
         median_resolve_hours: medianResolveH,
-        resolved_this_week: resolvedThisWeek
+        resolved_this_week: resolvedThisWeek,
+        // SOP additions
+        phase_compliance_pct: phaseCompliancePct,
+        onboarding_compliance_pct: onboardingCompliancePct,
+        median_tenure_days: medianTenure,
+        reviews_due: reviewsDue,
+        reviews_overdue: reviewsOverdue
       },
       health_distribution: healthDist,
       cohorts,
       velocity_series: velocitySeries,
       touchpoints_by_type_30d: byType,
       top_at_risk: atRisk,
+      cancellation_reasons: topCancellationReasons,
       generated_at: now.toISOString()
     });
   } catch (e) {
