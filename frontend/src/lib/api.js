@@ -69,6 +69,9 @@ export const api = {
   slackInactive:   ()              => request('/api/slack/channels/inactive'),
   slackAsk:        (question, deep=false, channel=null) =>
                     request('/api/slack/ask', { method: 'POST', body: JSON.stringify({ question, deep, channel }) }),
+  // Looms (structured)
+  createLoom:      (body)          => request('/api/looms', { method: 'POST', body: JSON.stringify(body) }),
+  clientLooms:     (id)            => request(`/api/looms/client/${id}`),
   // Reviews
   clientReviews:   (id)            => request(`/api/reviews/client/${id}`),
   dueReviews:      ()              => request('/api/reviews/due'),

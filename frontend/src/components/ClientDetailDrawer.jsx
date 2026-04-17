@@ -30,6 +30,8 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
   const [openFlags, setOpenFlags] = useState([]);
   const [health, setHealth] = useState(null);
   const [reviews, setReviews] = useState([]);
+  const [looms, setLooms] = useState([]);
+  const [showLoomModal, setShowLoomModal] = useState(false);
   const { refresh } = useData();
   const { show } = useToast();
   const { canSeeFinancials } = useRole();
@@ -47,6 +49,7 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
     setOpenFlags((fl?.flags || []).filter(f => f.client_id === clientId));
     api.clientHealth(clientId).then(setHealth).catch(() => setHealth(null));
     api.clientReviews(clientId).then(setReviews).catch(() => setReviews([]));
+    api.clientLooms(clientId).then(setLooms).catch(() => setLooms([]));
   }, [clientId]);
 
   useEffect(() => { load(); }, [load]);
@@ -282,7 +285,7 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
             {/* Timers */}
             <div className="grid grid-cols-2 gap-3">
               <TimerBlock timer={client.timers?.loom} label="Loom"
-                onAction={() => doAction('loom_sent', 'Loom Sent')}
+                onAction={() => setShowLoomModal(true)}
                 onSnooze={(d) => snooze('loom', d)} />
               <TimerBlock timer={client.timers?.call_offer} label="Call Offer"
                 onAction={() => doAction('call_offered', 'Call Offered')}
@@ -300,6 +303,27 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
                 load();
                 show({ message: 'Reviews generated.' });
               }} />
+            )}
+
+            {/* Loom History */}
+            {looms.length > 0 && (
+              <div>
+                <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Loom History ({looms.length})</div>
+                <div className="space-y-2">
+                  {looms.slice(0, 5).map(l => (
+                    <div key={l.id} className="rounded-md border border-ink-700 bg-ink-800/40 p-2.5 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-slate-200">{l.topic}</span>
+                        <span className="text-[10px] text-slate-600 tabular-nums">{fmtDate(l.sent_at)}</span>
+                      </div>
+                      {l.wins && <div className="text-emerald-400/70 mt-1">Wins: {l.wins}</div>}
+                      {l.next_steps && <div className="text-slate-400 mt-0.5">Next: {l.next_steps}</div>}
+                      {l.ask && <div className="text-amber-300/70 mt-0.5">Ask: {l.ask}</div>}
+                      {l.loom_url && <a href={l.loom_url} target="_blank" rel="noopener" className="text-blue-400 hover:underline mt-0.5 inline-block">View Loom</a>}
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
 
             {/* Actionable context */}
@@ -342,6 +366,90 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
           </div>
         )}
       </div>
+      {showLoomModal && client && (
+        <LoomSentModal
+          clientName={client.name}
+          onClose={() => setShowLoomModal(false)}
+          onSubmit={async (data) => {
+            await api.createLoom({ client_id: clientId, ...data });
+            setShowLoomModal(false);
+            load(); refresh(true);
+            show({ message: `Loom logged for ${client.name}.`, action: {
+              label: 'Undo',
+              onClick: async () => { await api.undoLast(clientId); refresh(true); load(); show({ message: 'Undone.' }); }
+            }});
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function LoomSentModal({ clientName, onClose, onSubmit }) {
+  const [form, setForm] = useState({ topic: '', wins: '', updates: '', next_steps: '', ask: '', loom_url: '' });
+  const [saving, setSaving] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!form.topic.trim()) return;
+    setSaving(true);
+    await onSubmit(form);
+    setSaving(false);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" />
+      <form onSubmit={handleSubmit}
+        className="relative bg-ink-900 border border-ink-700 rounded-xl shadow-2xl w-full max-w-md max-h-[85vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-ink-800 flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-slate-100">Log Loom</h2>
+            <div className="text-xs text-slate-500 mt-0.5">for {clientName}</div>
+          </div>
+          <button type="button" onClick={onClose}
+            className="text-slate-400 hover:text-white w-7 h-7 grid place-items-center rounded hover:bg-ink-800">✕</button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <div>
+            <div className="text-xs text-slate-400 mb-1">Topic / Subject *</div>
+            <input className="input w-full" autoFocus required placeholder="e.g. Monthly content strategy update"
+              value={form.topic} onChange={e => setForm(f => ({ ...f, topic: e.target.value }))} />
+          </div>
+          <div>
+            <div className="text-xs text-slate-400 mb-1">Wins / Progress</div>
+            <textarea className="input w-full h-14" placeholder="What went well? What milestones hit?"
+              value={form.wins} onChange={e => setForm(f => ({ ...f, wins: e.target.value }))} />
+          </div>
+          <div>
+            <div className="text-xs text-slate-400 mb-1">Updates Shared</div>
+            <textarea className="input w-full h-14" placeholder="Content or strategy changes discussed"
+              value={form.updates} onChange={e => setForm(f => ({ ...f, updates: e.target.value }))} />
+          </div>
+          <div>
+            <div className="text-xs text-slate-400 mb-1">Next Steps</div>
+            <textarea className="input w-full h-14" placeholder="What's coming next for this client"
+              value={form.next_steps} onChange={e => setForm(f => ({ ...f, next_steps: e.target.value }))} />
+          </div>
+          <div>
+            <div className="text-xs text-slate-400 mb-1">Ask / Action from Client</div>
+            <textarea className="input w-full h-14" placeholder="Any requests or actions needed from them?"
+              value={form.ask} onChange={e => setForm(f => ({ ...f, ask: e.target.value }))} />
+          </div>
+          <div>
+            <div className="text-xs text-slate-400 mb-1">Loom URL (optional)</div>
+            <input className="input w-full" placeholder="https://www.loom.com/share/..."
+              value={form.loom_url} onChange={e => setForm(f => ({ ...f, loom_url: e.target.value }))} />
+          </div>
+        </div>
+        <div className="px-5 py-3 border-t border-ink-800 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="btn btn-sm">Cancel</button>
+          <button type="submit" disabled={saving || !form.topic.trim()} className="btn btn-primary btn-sm px-5">
+            {saving ? 'Saving…' : 'Log Loom Sent'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
