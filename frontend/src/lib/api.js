@@ -72,6 +72,8 @@ export const api = {
   // Looms (structured)
   createLoom:      (body)          => request('/api/looms', { method: 'POST', body: JSON.stringify(body) }),
   clientLooms:     (id)            => request(`/api/looms/client/${id}`),
+  markLoomResponded:(id)           => request(`/api/looms/${id}/responded`, { method: 'PATCH' }),
+  unrespondedLooms:()              => request('/api/looms/unresponded'),
   // Reviews
   clientReviews:   (id)            => request(`/api/reviews/client/${id}`),
   dueReviews:      ()              => request('/api/reviews/due'),

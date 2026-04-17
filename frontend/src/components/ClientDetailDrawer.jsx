@@ -320,11 +320,23 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
                     <div key={l.id} className="rounded-md border border-ink-700 bg-ink-800/40 p-2.5 text-xs">
                       <div className="flex items-center justify-between">
                         <span className="font-medium text-slate-200">{l.topic}</span>
-                        <span className="text-[10px] text-slate-600 tabular-nums">{fmtDate(l.sent_at)}</span>
+                        <div className="flex items-center gap-2">
+                          {l.client_responded ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Responded</span>
+                          ) : l.client_ask ? (
+                            <button onClick={async (e) => { e.stopPropagation(); await api.markLoomResponded(l.id); load(); show({ message: 'Marked as responded.' }); }}
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 hover:bg-amber-500/20 transition">
+                              Mark responded
+                            </button>
+                          ) : null}
+                          <span className="text-[10px] text-slate-600 tabular-nums">{fmtDate(l.sent_at)}</span>
+                        </div>
                       </div>
-                      {l.wins && <div className="text-emerald-400/70 mt-1">Wins: {l.wins}</div>}
-                      {l.next_steps && <div className="text-slate-400 mt-0.5">Next: {l.next_steps}</div>}
-                      {l.ask && <div className="text-amber-300/70 mt-0.5">Ask: {l.ask}</div>}
+                      {l.performance_snapshot && <div className="text-sky-400/70 mt-1">📊 {l.performance_snapshot}</div>}
+                      {l.wins && <div className="text-emerald-400/70 mt-0.5">✓ {l.wins}</div>}
+                      {l.strategy_recommendation && <div className="text-violet-400/70 mt-0.5">💡 {l.strategy_recommendation}</div>}
+                      {l.content_plan && <div className="text-amber-300/70 mt-0.5">📅 {l.content_plan}</div>}
+                      {l.client_ask && <div className="text-rose-300/70 mt-0.5">❓ {l.client_ask}</div>}
                       {l.loom_url && <a href={l.loom_url} target="_blank" rel="noopener" className="text-blue-400 hover:underline mt-0.5 inline-block">View Loom</a>}
                     </div>
                   ))}
@@ -392,7 +404,10 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
 }
 
 function LoomSentModal({ clientName, onClose, onSubmit }) {
-  const [form, setForm] = useState({ topic: '', wins: '', updates: '', next_steps: '', ask: '', loom_url: '' });
+  const [form, setForm] = useState({
+    topic: '', performance_snapshot: '', wins: '',
+    strategy_recommendation: '', content_plan: '', client_ask: '', loom_url: ''
+  });
   const [saving, setSaving] = useState(false);
 
   async function handleSubmit(e) {
@@ -407,42 +422,85 @@ function LoomSentModal({ clientName, onClose, onSubmit }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" />
       <form onSubmit={handleSubmit}
-        className="relative bg-ink-900 border border-ink-700 rounded-xl shadow-2xl w-full max-w-md max-h-[85vh] overflow-y-auto"
+        className="relative bg-ink-900 border border-ink-700 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}>
-        <div className="px-5 py-4 border-b border-ink-800 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-slate-100">Log Loom</h2>
-            <div className="text-xs text-slate-500 mt-0.5">for {clientName}</div>
+        <div className="px-5 py-4 border-b border-ink-800">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-slate-100">Log Loom</h2>
+              <div className="text-xs text-slate-500 mt-0.5">for {clientName}</div>
+            </div>
+            <button type="button" onClick={onClose}
+              className="text-slate-400 hover:text-white w-7 h-7 grid place-items-center rounded hover:bg-ink-800">✕</button>
           </div>
-          <button type="button" onClick={onClose}
-            className="text-slate-400 hover:text-white w-7 h-7 grid place-items-center rounded hover:bg-ink-800">✕</button>
+          <div className="text-[10px] text-slate-600 mt-2 leading-relaxed">
+            Every Loom is a retention event. Lead with results, recommend strategy, end with an ask.
+          </div>
         </div>
-        <div className="px-5 py-4 space-y-3">
+        <div className="px-5 py-4 space-y-4">
+          {/* Topic */}
           <div>
             <div className="text-xs text-slate-400 mb-1">Topic / Subject *</div>
-            <input className="input w-full" autoFocus required placeholder="e.g. Monthly content strategy update"
+            <input className="input w-full" autoFocus required placeholder="e.g. April performance review + Q2 strategy shift"
               value={form.topic} onChange={e => setForm(f => ({ ...f, topic: e.target.value }))} />
           </div>
-          <div>
-            <div className="text-xs text-slate-400 mb-1">Wins / Progress</div>
-            <textarea className="input w-full h-14" placeholder="What went well? What milestones hit?"
-              value={form.wins} onChange={e => setForm(f => ({ ...f, wins: e.target.value }))} />
+
+          {/* Beat 1: Performance Snapshot */}
+          <div className="rounded-lg border border-sky-500/20 bg-sky-500/5 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-sky-300">Beat 1 — Performance Snapshot</span>
+              <span className="text-[10px] text-slate-600">Lead with numbers. This is the "justify the spend" moment.</span>
+            </div>
+            <textarea className="input w-full h-16 text-sm" value={form.performance_snapshot}
+              onChange={e => setForm(f => ({ ...f, performance_snapshot: e.target.value }))}
+              placeholder="Your last 4 reels averaged 2,400 views (up from 1,800). Best performer: the behind-the-scenes reel at 8.5K views. Follower count: 12,340 → 12,890 (+550 this month). Engagement rate holding at 3.2%." />
           </div>
-          <div>
-            <div className="text-xs text-slate-400 mb-1">Updates Shared</div>
-            <textarea className="input w-full h-14" placeholder="Content or strategy changes discussed"
-              value={form.updates} onChange={e => setForm(f => ({ ...f, updates: e.target.value }))} />
+
+          {/* Beat 2: Wins */}
+          <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-emerald-300">Beat 2 — Wins</span>
+              <span className="text-[10px] text-slate-600">Anchor the value. What's working? Specific callouts.</span>
+            </div>
+            <textarea className="input w-full h-14 text-sm" value={form.wins}
+              onChange={e => setForm(f => ({ ...f, wins: e.target.value }))}
+              placeholder="The hook-first format is clearly resonating — 3 of your top 5 reels this month used it. Your audience responds strongest to [specific content type]. The collab reel outperformed your average by 3x." />
           </div>
-          <div>
-            <div className="text-xs text-slate-400 mb-1">Next Steps</div>
-            <textarea className="input w-full h-14" placeholder="What's coming next for this client"
-              value={form.next_steps} onChange={e => setForm(f => ({ ...f, next_steps: e.target.value }))} />
+
+          {/* Beat 3: Strategy Recommendation */}
+          <div className="rounded-lg border border-violet-500/20 bg-violet-500/5 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-violet-300">Beat 3 — Strategy Recommendation</span>
+              <span className="text-[10px] text-slate-600">Don't just report — advise. Proactive shifts.</span>
+            </div>
+            <textarea className="input w-full h-16 text-sm" value={form.strategy_recommendation}
+              onChange={e => setForm(f => ({ ...f, strategy_recommendation: e.target.value }))}
+              placeholder="Based on what's performing, I'd recommend we shift your mix to 60% educational / 40% personal next month. I also noticed your CTA link is going to your homepage — if we swap that to a direct lead capture page, you'll convert more of these views into actual leads." />
           </div>
-          <div>
-            <div className="text-xs text-slate-400 mb-1">Ask / Action from Client</div>
-            <textarea className="input w-full h-14" placeholder="Any requests or actions needed from them?"
-              value={form.ask} onChange={e => setForm(f => ({ ...f, ask: e.target.value }))} />
+
+          {/* Beat 4: Content Plan */}
+          <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-amber-300">Beat 4 — Content Plan</span>
+              <span className="text-[10px] text-slate-600">What's coming. Makes every month feel intentional.</span>
+            </div>
+            <textarea className="input w-full h-14 text-sm" value={form.content_plan}
+              onChange={e => setForm(f => ({ ...f, content_plan: e.target.value }))}
+              placeholder="This week: 3 reels dropping (topic-based hooks). Next month: testing carousel-style reels + one trending audio piece. I'm also prepping a series concept around [theme] that I think could be a breakout." />
           </div>
+
+          {/* Beat 5: Client Ask */}
+          <div className="rounded-lg border border-rose-500/20 bg-rose-500/5 p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-rose-300">Beat 5 — The Ask</span>
+              <span className="text-[10px] text-slate-600">Engagement hook. If they don't respond, it's an early warning.</span>
+            </div>
+            <textarea className="input w-full h-14 text-sm" value={form.client_ask}
+              onChange={e => setForm(f => ({ ...f, client_ask: e.target.value }))}
+              placeholder="Can you send me 2-3 raw clips from your upcoming event? Also — what's your #1 goal for Q2: more followers, more leads, or more brand deals? That'll shape how I angle the content." />
+          </div>
+
+          {/* Loom URL */}
           <div>
             <div className="text-xs text-slate-400 mb-1">Loom URL (optional)</div>
             <input className="input w-full" placeholder="https://www.loom.com/share/..."
