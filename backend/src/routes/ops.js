@@ -1,4 +1,4 @@
-h// Ops & Retention routes: triage, steppers, save plans, flags, billing.
+// Ops & Retention routes: triage, steppers, save plans, flags, billing.
 import { Router } from 'express';
 import { supabase } from '../lib/supabase.js';
 import { logTouchpoint } from '../lib/clientOps.js';
@@ -19,7 +19,7 @@ export const ONBOARDING_STEPS = [
 
 export const CLOSEOUT_STEPS = [
   { key: 'cancellation_ack',         label: 'Cancellation acknowledged' },
-  { key: 'final_date_confirmed',     label: 'Final delivery date confirmed' },h
+  { key: 'final_date_confirmed',     label: 'Final delivery date confirmed' },
   { key: 'production_notified',      label: 'Production team notified in Discord' },
   { key: 'remaining_delivered',      label: 'Remaining content delivered' },
   { key: 'handoff_sent',             label: 'Final handoff package sent' },
