@@ -24,6 +24,13 @@ const SITUATION_TYPES = [
   { key: 'month10_escalation',   label: 'Month 10 escalation' }
 ];
 
+const RETENTION_REFERRAL_TYPES = [
+  { key: 'views_complaint',        label: 'Views / performance complaint', icon: '📉' },
+  { key: 'engagement_drop',        label: 'Engagement drop',              icon: '📭' },
+  { key: 'at_risk',                label: 'At-risk / churn signal',       icon: '🚨' },
+  { key: 'goal_adjustment_needed', label: 'Goal adjustment needed',       icon: '🎯' }
+];
+
 export default function ClientDetailDrawer({ clientId, onClose }) {
   const [client, setClient] = useState(null);
   const [note, setNote] = useState('');
@@ -34,6 +41,8 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
   const [reviews, setReviews] = useState([]);
   const [looms, setLooms] = useState([]);
   const [showLoomModal, setShowLoomModal] = useState(false);
+  const [showRetentionFlag, setShowRetentionFlag] = useState(false);
+  const [retentionFlagDetail, setRetentionFlagDetail] = useState('');
   const { refresh } = useData();
   const { show } = useToast();
   const { canSeeFinancials } = useRole();
@@ -143,6 +152,19 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
     } else {
       show({ message: 'Flag raised.' });
     }
+  }
+
+  async function flagForRetention(type) {
+    const detail = retentionFlagDetail.trim() || undefined;
+    const result = await api.createFlag({ client_id: clientId, type, detail });
+    setRetentionFlagDetail('');
+    setShowRetentionFlag(false);
+    load(); refresh(true);
+    const label = RETENTION_REFERRAL_TYPES.find(t => t.key === type)?.label || type;
+    show({ message: result?.save_plan
+      ? `Flagged for retention: ${label} + save plan created.`
+      : `Flagged for retention: ${label}.`
+    });
   }
 
   async function resolveFlag(id) {
@@ -286,6 +308,39 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
                 <option value="" disabled>+ Raise a flag…</option>
                 {SITUATION_TYPES.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
               </select>
+            </div>
+
+            {/* Flag for Retention */}
+            <div>
+              {!showRetentionFlag ? (
+                <button onClick={() => setShowRetentionFlag(true)}
+                  className="w-full flex items-center justify-center gap-2 rounded-lg border border-violet-500/30 bg-violet-500/5 px-3 py-2 text-sm text-violet-300 hover:bg-violet-500/10 transition">
+                  <span>⚑</span> Flag for Retention Specialist
+                </button>
+              ) : (
+                <div className="rounded-lg border border-violet-500/30 bg-violet-500/5 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs uppercase tracking-wide text-violet-300">Flag for Retention</span>
+                    <button onClick={() => { setShowRetentionFlag(false); setRetentionFlagDetail(''); }}
+                      className="text-xs text-slate-500 hover:text-slate-300">Cancel</button>
+                  </div>
+                  <textarea
+                    value={retentionFlagDetail}
+                    onChange={e => setRetentionFlagDetail(e.target.value)}
+                    placeholder="Context for the retention specialist (optional)…"
+                    rows={2}
+                    className="w-full bg-ink-800 border border-ink-700 rounded-md text-sm px-2.5 py-1.5 resize-none placeholder:text-slate-600"
+                  />
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {RETENTION_REFERRAL_TYPES.map(t => (
+                      <button key={t.key} onClick={() => flagForRetention(t.key)}
+                        className="flex items-center gap-1.5 rounded-md border border-ink-700 bg-ink-800/60 px-2 py-1.5 text-xs text-slate-300 hover:bg-violet-500/10 hover:border-violet-500/30 hover:text-violet-200 transition text-left">
+                        <span>{t.icon}</span> {t.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Timers */}

@@ -38,7 +38,12 @@ export const SITUATION_TYPES = {
   out_of_scope:           { label: 'Out-of-scope request',      playbook: ['Clarify package limits', 'Offer upsell', 'Decline politely if not possible'] },
   failed_payment:         { label: 'Failed payment',            playbook: ['Check Stripe', 'Notify client', 'Pause delivery if 7+ days overdue'] },
   month10_review:         { label: 'Month 10 retention review', playbook: ['Schedule retention call', 'Review success definition progress', 'Prepare renewal options', 'Draft retention proposal'] },
-  month10_escalation:     { label: 'Month 10 escalation (day 330)', playbook: ['Urgent retention call', 'Executive outreach', 'Finalize retention offer', 'Prepare churn contingency'] }
+  month10_escalation:     { label: 'Month 10 escalation (day 330)', playbook: ['Urgent retention call', 'Executive outreach', 'Finalize retention offer', 'Prepare churn contingency'] },
+  // CSM → Retention Specialist referral flags
+  views_complaint:        { label: 'Views / performance complaint', playbook: ['Review metrics snapshot', 'Send Results-First Loom within 24h', 'Re-set expectations or goal', 'Follow up in 48h'], assigned_to: 'retention' },
+  engagement_drop:        { label: 'Engagement drop',              playbook: ['Check last Loom response', 'Send re-engagement Loom', 'Offer call if 2+ non-responses', 'Flag non_responsive if no reply'], assigned_to: 'retention' },
+  at_risk:                { label: 'At-risk / churn signal',       playbook: ['Review client health score', 'Priority Loom within 24h', 'Prepare save strategy', 'Coordinate with CSM on next steps'], assigned_to: 'retention' },
+  goal_adjustment_needed: { label: 'Goal adjustment needed',       playbook: ['Review current goal vs actuals', 'Prepare adjusted goal options', 'Send goal-reset Loom', 'Log new goal in CRM'], assigned_to: 'retention' }
 };
 
 // ---------- Triage (Ops home) ----------
@@ -316,15 +321,23 @@ const SAVE_PLAN_TRIGGERS = {
   delayed_onboarding:    { proposal: 'Onboarding stalled — personal outreach, reoffer call slots, consider direct call.' },
   out_of_scope:          { proposal: 'Out-of-scope request — clarify package limits, present upsell option if appropriate.' },
   month10_review:        { proposal: 'Month 10 proactive retention — schedule retention call, review success definition progress, prepare renewal options.' },
-  month10_escalation:    { proposal: 'URGENT Month 10 escalation — executive outreach required, finalize retention offer, prepare churn contingency plan.' }
+  month10_escalation:    { proposal: 'URGENT Month 10 escalation — executive outreach required, finalize retention offer, prepare churn contingency plan.' },
+  at_risk:               { proposal: 'At-risk client flagged by CSM — review health score, send priority Loom, prepare save strategy within 24h.' },
+  views_complaint:       { proposal: 'Client complained about views/performance — send Results-First Loom addressing metrics, re-set expectations or adjust goal.' }
 };
 
 router.post('/flags', async (req, res) => {
   try {
     const { client_id, type, detail } = req.body || {};
     if (!client_id || !SITUATION_TYPES[type]) return res.status(400).json({ error: 'bad input' });
+    // Auto-assign to retention if the flag type defines it
+    const assignedTo = SITUATION_TYPES[type].assigned_to || null;
     const { data: flag, error } = await supabase
-      .from('situation_flags').insert({ client_id, type, detail }).select().single();
+      .from('situation_flags').insert({
+        client_id, type, detail,
+        assigned_to: assignedTo,
+        flagged_by: req.user?.email || 'unknown'
+      }).select().single();
     if (error) throw error;
     await logTouchpoint(client_id, 'system', `Flag raised: ${SITUATION_TYPES[type].label}${detail ? ` — ${detail}` : ''}`);
 
@@ -352,6 +365,19 @@ router.post('/flags', async (req, res) => {
     }
 
     res.status(201).json({ flag, save_plan });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/ops/flags/retention — open flags assigned to retention specialist (CSM referrals)
+router.get('/flags/retention', async (_req, res) => {
+  try {
+    const { data, error } = await supabase.from('situation_flags')
+      .select('*, clients(id, name, status, email, package)')
+      .eq('assigned_to', 'retention')
+      .is('resolved_at', null)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    res.json(data || []);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

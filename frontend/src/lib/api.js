@@ -47,6 +47,7 @@ export const api = {
   updateSavePlan:  (id, patch)     => request(`/api/ops/save-plans/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   // Flags
   listFlags:       ()              => request('/api/ops/flags'),
+  retentionFlags:  ()              => request('/api/ops/flags/retention'),
   createFlag:      (body)          => request('/api/ops/flags', { method: 'POST', body: JSON.stringify(body) }),
   resolveFlag:     (id)            => request(`/api/ops/flags/${id}/resolve`, { method: 'POST', body: JSON.stringify({}) }),
   // Billing

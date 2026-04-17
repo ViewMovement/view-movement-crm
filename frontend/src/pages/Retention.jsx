@@ -15,16 +15,20 @@ export default function Retention() {
   const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState(null);
 
+  const [retentionFlags, setRetentionFlags] = useState([]);
+
   const load = useCallback(async () => {
     try {
-      const [d, g, gr] = await Promise.all([
+      const [d, g, gr, rf] = await Promise.all([
         api.day(),
         api.activeGoals().catch(() => []),
-        api.goalsForReview().catch(() => [])
+        api.goalsForReview().catch(() => []),
+        api.retentionFlags().catch(() => [])
       ]);
       setDay(d);
       setGoals(g);
       setGoalsForReview(gr);
+      setRetentionFlags(rf);
     } finally { setLoading(false); }
   }, []);
 
@@ -49,13 +53,58 @@ export default function Retention() {
 
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-8">
+        <KPI label="CSM Referrals" value={retentionFlags.length} accent={retentionFlags.length > 0 ? 'violet' : 'emerald'} />
         <KPI label="Looms Due Today" value={loomsDue} accent={loomsDue > 0 ? 'amber' : 'emerald'} />
         <KPI label="Loom On-Time" value={`${loomPct}%`} accent={loomPct >= 95 ? 'emerald' : loomPct >= 80 ? 'amber' : 'rose'} />
         <KPI label="Unresponded" value={respondedLooms} accent={respondedLooms > 3 ? 'rose' : respondedLooms > 0 ? 'amber' : 'emerald'} />
         <KPI label="Reviews Due" value={reviews_due.length} accent={reviews_due.length > 0 ? 'amber' : 'emerald'} />
-        <KPI label="Discord Notes Missing" value={discordMissing} accent={discordMissing > 0 ? 'rose' : 'emerald'} />
         <KPI label="Active Goals" value={goals.length} accent="sky" />
       </div>
+
+      {/* CSM Referrals — flags assigned to retention */}
+      {retentionFlags.length > 0 && (
+        <section className="mb-8 rounded-xl border border-violet-500/20 bg-violet-500/5 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span>⚑</span>
+            <h3 className="text-sm font-medium text-violet-300">CSM Referrals ({retentionFlags.length})</h3>
+            <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-300 border border-violet-500/20">Action needed</span>
+          </div>
+          <div className="space-y-1.5">
+            {retentionFlags.map(f => {
+              const typeLabel = {
+                views_complaint: '📉 Views / performance complaint',
+                engagement_drop: '📭 Engagement drop',
+                at_risk: '🚨 At-risk / churn signal',
+                goal_adjustment_needed: '🎯 Goal adjustment needed'
+              }[f.type] || f.type;
+              const age = Math.floor((Date.now() - new Date(f.created_at).getTime()) / 86400000);
+              return (
+                <div key={f.id} className="flex items-center gap-3 rounded-lg px-3 py-2.5 bg-ink-900/40 hover:bg-ink-800 transition">
+                  <StatusDot status={f.clients?.status} label={false} />
+                  <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setOpenId(f.clients?.id || f.client_id)}>
+                    <div className="text-sm font-medium truncate">{f.clients?.name || 'Client'}</div>
+                    <div className="text-[11px] text-violet-300/70">{typeLabel}</div>
+                    {f.detail && <div className="text-[11px] text-slate-500 truncate mt-0.5">{f.detail}</div>}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={`text-xs tabular-nums ${age >= 3 ? 'text-rose-400' : age >= 1 ? 'text-amber-400' : 'text-slate-500'}`}>
+                      {age === 0 ? 'Today' : `${age}d ago`}
+                    </span>
+                    {f.flagged_by && <span className="text-[10px] text-slate-600">by {f.flagged_by.split('@')[0]}</span>}
+                    <button onClick={async () => {
+                      await api.resolveFlag(f.id);
+                      show({ message: 'Referral resolved.' });
+                      load();
+                    }} className="text-xs px-2 py-1 rounded border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 transition">
+                      Done
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Expectations Loom Alerts */}
       {expectations_loom_alerts.length > 0 && (
@@ -296,6 +345,7 @@ function KPI({ label, value, accent = 'slate' }) {
     amber: 'text-amber-400 border-amber-500/20 bg-amber-500/5',
     rose: 'text-rose-400 border-rose-500/20 bg-rose-500/5',
     sky: 'text-sky-400 border-sky-500/20 bg-sky-500/5',
+    violet: 'text-violet-400 border-violet-500/20 bg-violet-500/5',
     slate: 'text-slate-300 border-ink-700 bg-ink-900/40',
   };
   return (
