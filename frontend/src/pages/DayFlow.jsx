@@ -15,10 +15,10 @@ const URGENCY_BADGE = {
 };
 
 const PHASES = [
-  { n: 1, label: 'Urgent triage', icon: 'ð´', desc: 'Handle critical flags and red-line items first' },
-  { n: 2, label: 'Onboarding + Pulse', icon: 'ð±', desc: 'Check on new clients and Slack signals' },
-  { n: 3, label: 'Retention actions', icon: 'ð¥', desc: 'Send Looms and make call offers' },
-  { n: 4, label: 'Passive monitor', icon: 'ð¡', desc: 'Review the timeline, then wrap up' },
+  { n: 1, label: 'Urgent triage', icon: '🔴', desc: 'Handle critical flags and red-line items first' },
+  { n: 2, label: 'Onboarding + Pulse', icon: '🌱', desc: 'Check on new clients and Slack signals' },
+  { n: 3, label: 'Retention actions', icon: '🎥', desc: 'Send Looms and make call offers' },
+  { n: 4, label: 'Passive monitor', icon: '📡', desc: 'Review the timeline, then wrap up' },
 ];
 
 export default function DayFlow() {
@@ -70,7 +70,7 @@ export default function DayFlow() {
         title: `Send Loom to ${item.client.name}?`,
         subtitle: 'Record it, paste the URL, then confirm.',
         checks: ['Video is actually recorded', 'Video is actually sent to the client'],
-        confirmLabel: 'Logged Â· Mark sent',
+        confirmLabel: 'Logged · Mark sent',
         onConfirm: async () => {
           await api.action(item.client.id, 'loom_sent');
           toastAndReload(`Loom logged for ${item.client.name}`, item.client.id);
@@ -110,19 +110,19 @@ export default function DayFlow() {
 
   return (
     <>
-      {/* ââ Hero ââ */}
+      {/* ── Hero ── */}
       <section className="mb-8 pt-2">
         <h1 className="text-4xl font-bold tracking-tight text-slate-50 capitalize">
           {greeting}, {userFirst}.
         </h1>
         <p className="text-lg text-slate-400 mt-2">
           {allPhases
-            ? "You're done for the day. Nice work. ð²"
-            : "Here's your daily game plan â work through each phase."}
+            ? "You're done for the day. Nice work. 🌲"
+            : "Here's your daily game plan — work through each phase."}
         </p>
       </section>
 
-      {/* ââ Overall progress bar ââ */}
+      {/* ── Overall progress bar ── */}
       <section className="mb-8">
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm font-medium text-slate-300">Daily progress</span>
@@ -134,20 +134,20 @@ export default function DayFlow() {
         </div>
       </section>
 
-      {/* ââ Billing banner ââ */}
+      {/* ── Billing banner ── */}
       {billing.is_check_day && (
         <button onClick={() => nav('/billing')}
           className="mb-6 w-full rounded-2xl border-2 border-amber-500/40 bg-amber-500/5 px-6 py-5 text-left hover:bg-amber-500/10 transition flex items-center gap-4">
-          <span className="text-3xl">ð³</span>
+          <span className="text-3xl">💳</span>
           <div className="flex-1">
             <div className="text-lg font-semibold text-amber-200">Billing verification day</div>
-            <div className="text-sm text-amber-300/70 mt-0.5">Today is the {billing.relevant_day}{suffix(billing.relevant_day)} â run your billing checklist.</div>
+            <div className="text-sm text-amber-300/70 mt-0.5">Today is the {billing.relevant_day}{suffix(billing.relevant_day)} — run your billing checklist.</div>
           </div>
-          <span className="text-xl text-amber-200">â</span>
+          <span className="text-xl text-amber-200">→</span>
         </button>
       )}
 
-      {/* ââââââ PHASE CARDS ââââââ */}
+      {/* ══════ PHASE CARDS ══════ */}
       <section className="space-y-4 mb-10">
         {PHASES.map((phase, i) => {
           const done = phaseDone[i];
@@ -163,7 +163,7 @@ export default function DayFlow() {
                     ? 'border-slate-500/40 bg-ink-900/80'
                     : 'border-ink-700 bg-ink-900/40'
               }`}>
-              {/* Phase header â always visible */}
+              {/* Phase header — always visible */}
               <button
                 onClick={() => setActivePhase(isActive ? null : phase.n)}
                 className="w-full flex items-center gap-4 px-6 py-5 text-left hover:bg-white/[0.02] transition">
@@ -173,7 +173,7 @@ export default function DayFlow() {
                     ? 'bg-emerald-500 text-white'
                     : 'bg-ink-800 border-2 border-ink-600'
                 }`}>
-                  {done ? 'â' : phase.icon}
+                  {done ? '✓' : phase.icon}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3">
@@ -188,10 +188,10 @@ export default function DayFlow() {
                   </div>
                   <div className="text-sm text-slate-500 mt-0.5">{phase.desc}</div>
                 </div>
-                <span className={`text-lg text-slate-500 transition-transform ${isActive ? 'rotate-180' : ''}`}>â¾</span>
+                <span className={`text-lg text-slate-500 transition-transform ${isActive ? 'rotate-180' : ''}`}>▾</span>
               </button>
 
-              {/* Phase content â expanded */}
+              {/* Phase content — expanded */}
               {isActive && !done && (
                 <div className="px-6 pb-6 border-t border-ink-700/50">
                   <PhaseContent
@@ -210,12 +210,12 @@ export default function DayFlow() {
                   />
                   <button onClick={() => togglePhase(phase.n)}
                     className="mt-6 w-full btn btn-primary py-3 text-base font-semibold rounded-xl">
-                    Mark Phase {phase.n} Complete â
+                    Mark Phase {phase.n} Complete ✓
                   </button>
                 </div>
               )}
 
-              {/* Completed phase â collapsed summary */}
+              {/* Completed phase — collapsed summary */}
               {done && isActive && (
                 <div className="px-6 pb-5 border-t border-emerald-500/20">
                   <div className="flex items-center justify-between pt-4">
@@ -231,7 +231,7 @@ export default function DayFlow() {
         })}
       </section>
 
-      {/* ââ Retention progress (always visible as context) ââ */}
+      {/* ── Retention progress (always visible as context) ── */}
       {(retention_queue || []).length > 0 && (
         <section className="mb-10 rounded-2xl border border-ink-700 bg-ink-900/40 p-6">
           <div className="flex items-center justify-between mb-3">
@@ -250,8 +250,8 @@ export default function DayFlow() {
               <div className="space-y-1 mt-2 opacity-50">
                 {retentionDone.map(item => (
                   <div key={item.id} className="flex items-center gap-3 text-sm text-slate-500 line-through px-1 py-1">
-                    <span className="text-emerald-500">â</span>
-                    <span>{item.action_type === 'loom' ? 'Loom' : 'Call'} â {item.client.name}</span>
+                    <span className="text-emerald-500">✓</span>
+                    <span>{item.action_type === 'loom' ? 'Loom' : 'Call'} — {item.client.name}</span>
                   </div>
                 ))}
               </div>
@@ -266,7 +266,7 @@ export default function DayFlow() {
   );
 }
 
-/* ââââââ Phase content (what shows inside each expanded phase) ââââââ */
+/* ══════ Phase content (what shows inside each expanded phase) ══════ */
 
 function PhaseContent({ phase, ops_queue, pulse_pressing, onboarding_heroes, retentionDue, retentionDone, retention_queue, canSeeFinancials, onOpenClient, onOpsAction, onRetentionAction, onSnooze }) {
   if (phase === 1) return <Phase1Content ops_queue={ops_queue} canSeeFinancials={canSeeFinancials} onOpsAction={onOpsAction} />;
@@ -284,14 +284,14 @@ function Phase1Content({ ops_queue, canSeeFinancials, onOpsAction }) {
         <button key={item.id} onClick={() => onOpsAction(item)}
           className="w-full flex items-center gap-4 rounded-xl border border-rose-500/30 bg-rose-500/5 px-5 py-4 hover:bg-rose-500/10 transition text-left group">
           <div className="h-10 w-10 rounded-full bg-rose-500/15 grid place-items-center shrink-0">
-            <span className="text-lg">ð´</span>
+            <span className="text-lg">🔴</span>
           </div>
           <div className="flex-1 min-w-0">
             <div className="font-semibold text-slate-100 group-hover:text-white transition">{item.next_action.label}</div>
-            <div className="text-sm text-rose-300/70 mt-0.5">{item.next_action.hint}{item.flags > 1 ? ` Â· ${item.flags} flags` : ''}</div>
+            <div className="text-sm text-rose-300/70 mt-0.5">{item.next_action.hint}{item.flags > 1 ? ` · ${item.flags} flags` : ''}</div>
           </div>
           {canSeeFinancials && item.client.mrr ? <span className="text-sm tabular-nums text-rose-300/60">${fmtMRR(item.client.mrr, { compact: true })}</span> : null}
-          <span className="text-slate-500 group-hover:text-slate-300 transition text-lg">â</span>
+          <span className="text-slate-500 group-hover:text-slate-300 transition text-lg">→</span>
         </button>
       ))}
     </div>
@@ -314,7 +314,7 @@ function Phase2Content({ pulse_pressing, onboarding_heroes, onOpenClient }) {
                   h.next_step?.blocked ? 'border-amber-500/30 bg-amber-500/5' : 'border-emerald-500/30 bg-emerald-500/5'
                 }`}>
                 <div className="h-10 w-10 rounded-full bg-emerald-500/15 grid place-items-center shrink-0">
-                  <span className="text-xl">{h.next_step?.blocked ? 'â ï¸' : 'ð±'}</span>
+                  <span className="text-xl">{h.next_step?.blocked ? '⚠️' : '🌱'}</span>
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-slate-100">{h.client.name}</div>
@@ -332,7 +332,7 @@ function Phase2Content({ pulse_pressing, onboarding_heroes, onOpenClient }) {
                     <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(h.completed / h.total) * 100}%` }} />
                   </div>
                 </div>
-                <span className="text-slate-500 text-lg">â</span>
+                <span className="text-slate-500 text-lg">→</span>
               </button>
             ))}
           </div>
@@ -355,7 +355,7 @@ function Phase2Content({ pulse_pressing, onboarding_heroes, onOpenClient }) {
                       #{item.channel?.name || 'unknown'}
                       <span className="ml-2 tabular-nums">{fmtRelative(item.created_at)}</span>
                     </div>
-                    <div className="text-sm text-slate-200 leading-relaxed">{item.summary || item.classification || 'â'}</div>
+                    <div className="text-sm text-slate-200 leading-relaxed">{item.summary || item.classification || '—'}</div>
                   </div>
                 </div>
               );
@@ -387,7 +387,7 @@ function Phase4Content() {
   return (
     <div className="pt-5">
       <div className="rounded-xl bg-ink-800/40 border border-ink-700/50 p-6 text-center">
-        <div className="text-3xl mb-3">ð¡</div>
+        <div className="text-3xl mb-3">📡</div>
         <div className="text-slate-200 font-medium mb-1">Quick scan</div>
         <div className="text-sm text-slate-500 max-w-sm mx-auto">
           Glance at the Activity feed and Slack Pulse. If nothing needs action, you're done for the day.
@@ -400,13 +400,13 @@ function Phase4Content() {
 function EmptyPhase({ message }) {
   return (
     <div className="pt-5 text-center py-6">
-      <div className="text-2xl mb-2">â</div>
+      <div className="text-2xl mb-2">✓</div>
       <div className="text-sm text-slate-400">{message}</div>
     </div>
   );
 }
 
-/* ââ Retention action card ââ */
+/* ── Retention action card ── */
 
 function RetentionCard({ item, canSeeFinancials, onOpen, onAction, onSnooze }) {
   const isLoom = item.action_type === 'loom';
@@ -418,7 +418,7 @@ function RetentionCard({ item, canSeeFinancials, onOpen, onAction, onSnooze }) {
         <div className={`h-10 w-10 rounded-full grid place-items-center shrink-0 ${
           isLoom ? 'bg-violet-500/15' : 'bg-sky-500/15'
         }`}>
-          <span className="text-lg">{isLoom ? 'ð¥' : 'ð'}</span>
+          <span className="text-lg">{isLoom ? '🎥' : '📞'}</span>
         </div>
         <div className="flex-1 min-w-0">
           <div className="font-semibold text-sm text-slate-100">{item.client.name}</div>
@@ -439,7 +439,7 @@ function RetentionCard({ item, canSeeFinancials, onOpen, onAction, onSnooze }) {
         <option value="1">1d</option><option value="2">2d</option><option value="3">3d</option><option value="7">1w</option>
       </select>
       <button onClick={onAction} className="btn btn-primary rounded-xl px-4 py-2.5 text-sm font-semibold shrink-0">
-        {isLoom ? 'â Loom Sent' : 'â Call Offered'}
+        {isLoom ? '✓ Loom Sent' : '✓ Call Offered'}
       </button>
     </div>
   );
