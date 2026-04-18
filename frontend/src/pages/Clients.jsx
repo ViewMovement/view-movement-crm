@@ -82,7 +82,7 @@ export default function Clients() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-50">Clients</h1>
           <p className="text-slate-400 mt-1">
-            {counts.all} total Â· {counts.green} healthy Â· {counts.yellow} watch Â· {counts.red} at risk Â· {counts.churned} churned
+            {counts.all} total · {counts.green} healthy · {counts.yellow} watch · {counts.red} at risk · {counts.churned} churned
           </p>
         </div>
         <button onClick={() => setShowAddForm(true)} className="btn btn-primary rounded-xl px-5 py-2.5 text-sm font-semibold">
@@ -90,7 +90,7 @@ export default function Clients() {
         </button>
       </div>
 
-      {/* Filter pills â big and tappable */}
+      {/* Filter pills — big and tappable */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <FilterPill label="All" count={counts.all} active={filter === 'all'} onClick={() => setFilter('all')} />
         <FilterPill label="Healthy" count={counts.green} active={filter === 'green'} onClick={() => setFilter('green')} color="emerald" />
@@ -102,8 +102,8 @@ export default function Clients() {
       {/* Search + sort */}
       <div className="flex items-center gap-3 mb-6">
         <div className="relative flex-1">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">ð</span>
-          <input className="input w-full pl-9 py-2.5 rounded-xl" placeholder="Search name, email, companyâ¦"
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">🔍</span>
+          <input className="input w-full pl-9 py-2.5 rounded-xl" placeholder="Search name, email, company…"
             value={query} onChange={e => setQuery(e.target.value)} />
         </div>
         <select className="input py-2.5 rounded-xl" value={sort} onChange={e => setSort(e.target.value)}>
@@ -116,7 +116,7 @@ export default function Clients() {
 
       {/* Client cards */}
       {filtered.length === 0 ? (
-        <Empty icon="â" title="No clients match" hint="Try clearing filters or search." />
+        <Empty icon="◎" title="No clients match" hint="Try clearing filters or search." />
       ) : (
         <div className="space-y-3">
           {filtered.map(c => <ClientCard key={c.id} client={c} onOpen={() => setOpenId(c.id)} canSeeFinancials={canSeeFinancials} />)}
@@ -129,7 +129,7 @@ export default function Clients() {
   );
 }
 
-/* âââ Client Card âââ */
+/* ─── Client Card ─── */
 
 function ClientCard({ client, onOpen, canSeeFinancials }) {
   const config = STATUS_CONFIG[client.status] || STATUS_CONFIG.green;
@@ -167,7 +167,7 @@ function ClientCard({ client, onOpen, canSeeFinancials }) {
             label="Loom"
             value={fmtRelative(loom.next_due_at)}
             overdue={loom.is_overdue}
-            icon="ð¥"
+            icon="🎥"
           />
         )}
         {call && (
@@ -175,7 +175,7 @@ function ClientCard({ client, onOpen, canSeeFinancials }) {
             label="Call"
             value={fmtRelative(call.next_due_at)}
             overdue={call.is_overdue}
-            icon="ð"
+            icon="📞"
           />
         )}
       </div>
@@ -184,11 +184,11 @@ function ClientCard({ client, onOpen, canSeeFinancials }) {
       {client.billing_date && (
         <div className="text-right shrink-0 hidden md:block">
           <div className="text-xs text-slate-500">Billing</div>
-          <div className="text-sm font-medium tabular-nums text-slate-300">{client.billing_date}{ord(client.billing_date)} Â· {client.days_until_billing}d</div>
+          <div className="text-sm font-medium tabular-nums text-slate-300">{client.billing_date}{ord(client.billing_date)} · {client.days_until_billing}d</div>
         </div>
       )}
 
-      <span className="text-slate-600 group-hover:text-slate-400 transition text-lg shrink-0">â</span>
+      <span className="text-slate-600 group-hover:text-slate-400 transition text-lg shrink-0">→</span>
     </button>
   );
 }
@@ -234,7 +234,7 @@ function ord(n) {
   return s[(v - 20) % 10] || s[v] || s[0];
 }
 
-/* âââ Add Client Modal âââ */
+/* ─── Add Client Modal ─── */
 
 const PACKAGES = ['12', '30', '60'];
 const STATUSES = [
@@ -295,7 +295,7 @@ function AddClientModal({ onClose, onSave }) {
         <div className="sticky top-0 bg-ink-900/95 backdrop-blur border-b border-ink-800 px-6 py-4 flex items-center justify-between z-10 rounded-t-2xl">
           <h2 className="text-lg font-semibold text-slate-100">Add New Client</h2>
           <button type="button" onClick={onClose}
-            className="text-slate-400 hover:text-white w-8 h-8 grid place-items-center rounded-lg hover:bg-ink-800">â</button>
+            className="text-slate-400 hover:text-white w-8 h-8 grid place-items-center rounded-lg hover:bg-ink-800">✕</button>
         </div>
 
         <div className="px-6 py-5 space-y-5">
@@ -382,7 +382,7 @@ function AddClientModal({ onClose, onSave }) {
                   value={form.action_needed} onChange={e => set('action_needed', e.target.value)} />
               </FormField>
               <FormField label="Notes / reason">
-                <textarea className="input w-full h-16 rounded-xl" placeholder="Any additional contextâ¦"
+                <textarea className="input w-full h-16 rounded-xl" placeholder="Any additional context…"
                   value={form.reason} onChange={e => set('reason', e.target.value)} />
               </FormField>
             </div>
@@ -392,7 +392,7 @@ function AddClientModal({ onClose, onSave }) {
         <div className="sticky bottom-0 bg-ink-900/95 backdrop-blur border-t border-ink-800 px-6 py-4 flex items-center justify-end gap-3 rounded-b-2xl">
           <button type="button" onClick={onClose} className="btn btn-sm rounded-xl">Cancel</button>
           <button type="submit" disabled={saving || !form.name.trim()} className="btn btn-primary btn-sm px-6 rounded-xl">
-            {saving ? 'Addingâ¦' : 'Add Client'}
+            {saving ? 'Adding…' : 'Add Client'}
           </button>
         </div>
       </form>
