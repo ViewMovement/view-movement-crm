@@ -6,19 +6,26 @@ import { useData } from '../lib/data.jsx';
 import ClientDetailDrawer from '../components/ClientDetailDrawer.jsx';
 import ConfirmDialog from '../components/ConfirmDialog.jsx';
 import { Skeleton, StatusDot } from '../components/primitives.jsx';
-import KpiStrip from '../components/KpiStrip.jsx';
 import { fmtRelative, fmtMRR } from '../lib/format.js';
 import { useRole } from '../lib/role.jsx';
 
 const URGENCY_BADGE = {
-  urgent:   { bg: 'bg-rose-500/15 text-rose-300', label: 'Urgent' },
-  heads_up: { bg: 'bg-amber-500/15 text-amber-300', label: 'Heads up' }
+  urgent:   { bg: 'bg-rose-500/15 text-rose-300 border-rose-500/30', label: 'Urgent' },
+  heads_up: { bg: 'bg-amber-500/15 text-amber-300 border-amber-500/30', label: 'Heads up' }
 };
+
+const PHASES = [
+  { n: 1, label: 'Urgent triage', icon: 'ð´', desc: 'Handle critical flags and red-line items first' },
+  { n: 2, label: 'Onboarding + Pulse', icon: 'ð±', desc: 'Check on new clients and Slack signals' },
+  { n: 3, label: 'Retention actions', icon: 'ð¥', desc: 'Send Looms and make call offers' },
+  { n: 4, label: 'Passive monitor', icon: 'ð¡', desc: 'Review the timeline, then wrap up' },
+];
 
 export default function DayFlow() {
   const [day, setDay] = useState(null);
   const [openId, setOpenId] = useState(null);
   const [confirming, setConfirming] = useState(null);
+  const [activePhase, setActivePhase] = useState(null); // which phase is expanded
   const { show } = useToast();
   const { refresh } = useData();
   const nav = useNavigate();
@@ -29,7 +36,18 @@ export default function DayFlow() {
 
   useEffect(() => { load(); }, [load]);
 
-  if (!day) return <div className="space-y-3"><Skeleton rows={6} className="h-16 w-full" /></div>;
+  // Auto-expand the first incomplete phase
+  useEffect(() => {
+    if (!day) return;
+    const { routine } = day;
+    if (!routine.phase_1_done) setActivePhase(1);
+    else if (!routine.phase_2_done) setActivePhase(2);
+    else if (!routine.phase_3_done) setActivePhase(3);
+    else if (!routine.phase_4_done) setActivePhase(4);
+    else setActivePhase(null);
+  }, [day]);
+
+  if (!day) return <div className="space-y-4 py-8"><Skeleton rows={4} className="h-24 w-full rounded-xl" /></div>;
 
   const { greeting, ops_queue, retention_queue, pulse_pressing, progress, onboarding_heroes, billing, routine, counts } = day;
   const userFirst = (day.user_email || '').split('@')[0].split('.')[0];
@@ -38,10 +56,12 @@ export default function DayFlow() {
   const retentionDue = (retention_queue || []).filter(r => !r.done_today);
   const retentionDone = (retention_queue || []).filter(r => r.done_today);
 
+  const phaseDone = [routine.phase_1_done, routine.phase_2_done, routine.phase_3_done, routine.phase_4_done];
+  const completedPhases = phaseDone.filter(Boolean).length;
+  const allPhases = completedPhases === 4;
+
   async function doOpsAction(item) {
-    if (item.next_action.type === 'flag') {
-      setOpenId(item.client.id);
-    }
+    if (item.next_action.type === 'flag') setOpenId(item.client.id);
   }
 
   async function doRetentionAction(item) {
@@ -50,7 +70,7 @@ export default function DayFlow() {
         title: `Send Loom to ${item.client.name}?`,
         subtitle: 'Record it, paste the URL, then confirm.',
         checks: ['Video is actually recorded', 'Video is actually sent to the client'],
-        confirmLabel: 'Logged · Mark sent',
+        confirmLabel: 'Logged Â· Mark sent',
         onConfirm: async () => {
           await api.action(item.client.id, 'loom_sent');
           toastAndReload(`Loom logged for ${item.client.name}`, item.client.id);
@@ -81,209 +101,164 @@ export default function DayFlow() {
     load();
   }
 
-  const allPhases = routine.phase_1_done && routine.phase_2_done && routine.phase_3_done && routine.phase_4_done;
-  const todayItemCount = (ops_queue || []).length + onboarding_heroes.length + (pulse_pressing || []).length;
+  function phaseCount(n) {
+    if (n === 1) return counts.urgent || 0;
+    if (n === 2) return onboarding_heroes.length + (pulse_pressing || []).length;
+    if (n === 3) return counts.retention_due || 0;
+    return null;
+  }
 
   return (
     <>
-      {/* Hero greeting */}
-      <section className="mb-6">
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-50 capitalize">
+      {/* ââ Hero ââ */}
+      <section className="mb-8 pt-2">
+        <h1 className="text-4xl font-bold tracking-tight text-slate-50 capitalize">
           {greeting}, {userFirst}.
         </h1>
-        <p className="text-slate-400 mt-1">
-          {todayItemCount === 0 && retentionDue.length === 0
-            ? (allPhases ? 'You are done for the day. 🌲' : 'Queues clear. Finish your daily routine to close the day.')
-            : <>{todayItemCount > 0 && <><strong className="text-slate-100 tabular-nums">{todayItemCount}</strong> ops items. </>}{retentionDue.length > 0 && <><strong className="text-slate-100 tabular-nums">{retentionDue.length}</strong> retention actions. </>}<span className="text-slate-500">Already handled {progress.done} today.</span></>}
+        <p className="text-lg text-slate-400 mt-2">
+          {allPhases
+            ? "You're done for the day. Nice work. ð²"
+            : "Here's your daily game plan â work through each phase."}
         </p>
       </section>
 
-      {/* ═══════ DAILY ROUTINE — TOP ═══════ */}
-      <section className="mb-8 rounded-xl border border-ink-700 bg-ink-900/50 p-5">
+      {/* ââ Overall progress bar ââ */}
+      <section className="mb-8">
         <div className="flex items-center justify-between mb-3">
-          <div className="text-xs uppercase tracking-[0.16em] text-slate-500">Daily routine</div>
-          <span className="text-xs text-slate-400 tabular-nums">{allPhases ? 'Complete ✓' : `${[1,2,3,4].filter(n => routine[`phase_${n}_done`]).length}/4`}</span>
+          <span className="text-sm font-medium text-slate-300">Daily progress</span>
+          <span className="text-sm tabular-nums text-slate-400">{completedPhases}/4 phases</span>
         </div>
-        <div className="grid md:grid-cols-4 gap-2">
-          <PhaseCheck n={1} label="Urgent triage" done={routine.phase_1_done} count={counts.urgent} onToggle={() => togglePhase(1)} />
-          <PhaseCheck n={2} label="Onboarding + Pulse" done={routine.phase_2_done} count={onboarding_heroes.length + (pulse_pressing || []).length} onToggle={() => togglePhase(2)} />
-          <PhaseCheck n={3} label="Retention actions" done={routine.phase_3_done} count={counts.retention_due} onToggle={() => togglePhase(3)} />
-          <PhaseCheck n={4} label="Passive monitor" done={routine.phase_4_done} onToggle={() => togglePhase(4)} />
+        <div className="h-3 rounded-full bg-ink-800 overflow-hidden">
+          <div className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 transition-all duration-700 ease-out rounded-full"
+            style={{ width: `${(completedPhases / 4) * 100}%` }} />
         </div>
-        {!allPhases && (
-          <div className="text-xs text-slate-500 mt-3">Tick each phase as you complete it.</div>
-        )}
       </section>
 
-      {/* KPI strip */}
-      <KpiStrip />
-
-      {/* Billing pulse banner */}
+      {/* ââ Billing banner ââ */}
       {billing.is_check_day && (
         <button onClick={() => nav('/billing')}
-          className="mb-6 w-full rounded-lg border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-left hover:bg-amber-500/10 transition flex items-center gap-3">
-          <span className="text-amber-300">◐</span>
+          className="mb-6 w-full rounded-2xl border-2 border-amber-500/40 bg-amber-500/5 px-6 py-5 text-left hover:bg-amber-500/10 transition flex items-center gap-4">
+          <span className="text-3xl">ð³</span>
           <div className="flex-1">
-            <div className="font-medium text-amber-200">Today is the {billing.relevant_day}{suffix(billing.relevant_day)} — run billing verification.</div>
-            <div className="text-xs text-amber-300/70">Click to open the billing checklist.</div>
+            <div className="text-lg font-semibold text-amber-200">Billing verification day</div>
+            <div className="text-sm text-amber-300/70 mt-0.5">Today is the {billing.relevant_day}{suffix(billing.relevant_day)} â run your billing checklist.</div>
           </div>
-          <span className="text-sm text-amber-200">→</span>
+          <span className="text-xl text-amber-200">â</span>
         </button>
       )}
 
-      {/* ═══════ TODAY — OPS MANAGER ═══════ */}
-      <section className="mb-10">
-        <div className="flex items-baseline gap-3 mb-4">
-          <h2 className="text-lg font-semibold text-slate-100 tracking-tight">Today</h2>
-          <span className="text-xs text-slate-500">Onboarding · urgent flags · pressing Slack signals</span>
-        </div>
+      {/* ââââââ PHASE CARDS ââââââ */}
+      <section className="space-y-4 mb-10">
+        {PHASES.map((phase, i) => {
+          const done = phaseDone[i];
+          const isActive = activePhase === phase.n;
+          const count = phaseCount(phase.n);
 
-        {todayItemCount === 0 ? (
-          <div className="rounded-lg border border-ink-700 bg-ink-900/40 p-6 text-center">
-            <div className="text-2xl mb-1">✓</div>
-            <div className="text-sm text-slate-400">Ops queue clear. Nothing needs immediate attention.</div>
-          </div>
-        ) : (
-          <div className="space-y-5">
-            {/* Urgent flags */}
-            {(ops_queue || []).length > 0 && (
-              <div>
-                <div className="text-[11px] uppercase tracking-wider text-rose-400/70 mb-2">Urgent flags ({ops_queue.length})</div>
-                <div className="space-y-2">
-                  {ops_queue.map(item => (
-                    <button key={item.id} onClick={() => doOpsAction(item)}
-                      className="w-full flex items-center gap-3 rounded-lg border border-rose-500/40 bg-rose-500/5 px-4 py-3 hover:bg-rose-500/10 transition text-left">
-                      <StatusDot status={item.client.status} label={false} />
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-slate-100 truncate">{item.next_action.label}</div>
-                        <div className="text-xs text-rose-300/70 mt-0.5">{item.next_action.hint}{item.flags > 1 ? ` · ⚑${item.flags}` : ''}</div>
-                      </div>
-                      {canSeeFinancials && item.client.mrr ? <span className="text-xs tabular-nums text-rose-300/60 shrink-0">${fmtMRR(item.client.mrr, { compact: true })}</span> : null}
-                      <span className="text-xs text-slate-400">→</span>
+          return (
+            <div key={phase.n}
+              className={`rounded-2xl border-2 transition-all duration-300 overflow-hidden ${
+                done
+                  ? 'border-emerald-500/30 bg-emerald-500/5'
+                  : isActive
+                    ? 'border-slate-500/40 bg-ink-900/80'
+                    : 'border-ink-700 bg-ink-900/40'
+              }`}>
+              {/* Phase header â always visible */}
+              <button
+                onClick={() => setActivePhase(isActive ? null : phase.n)}
+                className="w-full flex items-center gap-4 px-6 py-5 text-left hover:bg-white/[0.02] transition">
+                {/* Status circle */}
+                <div className={`h-12 w-12 rounded-full grid place-items-center text-xl shrink-0 ${
+                  done
+                    ? 'bg-emerald-500 text-white'
+                    : 'bg-ink-800 border-2 border-ink-600'
+                }`}>
+                  {done ? 'â' : phase.icon}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-3">
+                    <span className={`text-lg font-semibold ${done ? 'text-emerald-300' : 'text-slate-100'}`}>
+                      {phase.label}
+                    </span>
+                    {count != null && count > 0 && !done && (
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-700 text-slate-200 tabular-nums">
+                        {count}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm text-slate-500 mt-0.5">{phase.desc}</div>
+                </div>
+                <span className={`text-lg text-slate-500 transition-transform ${isActive ? 'rotate-180' : ''}`}>â¾</span>
+              </button>
+
+              {/* Phase content â expanded */}
+              {isActive && !done && (
+                <div className="px-6 pb-6 border-t border-ink-700/50">
+                  <PhaseContent
+                    phase={phase.n}
+                    ops_queue={ops_queue}
+                    pulse_pressing={pulse_pressing}
+                    onboarding_heroes={onboarding_heroes}
+                    retentionDue={retentionDue}
+                    retentionDone={retentionDone}
+                    retention_queue={retention_queue}
+                    canSeeFinancials={canSeeFinancials}
+                    onOpenClient={setOpenId}
+                    onOpsAction={doOpsAction}
+                    onRetentionAction={doRetentionAction}
+                    onSnooze={snooze}
+                  />
+                  <button onClick={() => togglePhase(phase.n)}
+                    className="mt-6 w-full btn btn-primary py-3 text-base font-semibold rounded-xl">
+                    Mark Phase {phase.n} Complete â
+                  </button>
+                </div>
+              )}
+
+              {/* Completed phase â collapsed summary */}
+              {done && isActive && (
+                <div className="px-6 pb-5 border-t border-emerald-500/20">
+                  <div className="flex items-center justify-between pt-4">
+                    <span className="text-sm text-emerald-300/70">Phase complete</span>
+                    <button onClick={() => togglePhase(phase.n)} className="text-xs text-slate-500 hover:text-slate-300 transition">
+                      Undo
                     </button>
-                  ))}
+                  </div>
                 </div>
-              </div>
-            )}
-
-            {/* Pressing Slack Pulse */}
-            {(pulse_pressing || []).length > 0 && (
-              <div>
-                <div className="text-[11px] uppercase tracking-wider text-slate-500 mb-2">Slack Pulse — pressing ({pulse_pressing.length})</div>
-                <div className="space-y-1.5">
-                  {pulse_pressing.map(item => {
-                    const badge = URGENCY_BADGE[item.urgency] || URGENCY_BADGE.heads_up;
-                    return (
-                      <div key={item.id}
-                        className="flex items-start gap-3 rounded-lg border border-ink-700 bg-ink-900/60 px-4 py-3">
-                        <span className={`pill text-[10px] shrink-0 mt-0.5 ${badge.bg}`}>{badge.label}</span>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs text-slate-500 mb-0.5">
-                            #{item.channel?.name || 'unknown'}
-                            <span className="ml-2 tabular-nums">{fmtRelative(item.created_at)}</span>
-                          </div>
-                          <div className="text-sm text-slate-200">{item.summary || item.classification || '—'}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Onboarding heroes */}
-            {onboarding_heroes.length > 0 && (
-              <div>
-                <div className="text-[11px] uppercase tracking-wider text-emerald-400/70 mb-2">Onboarding ({onboarding_heroes.length})</div>
-                <div className="space-y-2">
-                  {onboarding_heroes.map(h => (
-                    <button key={h.client.id} onClick={() => setOpenId(h.client.id)}
-                      className={`w-full flex items-center gap-4 rounded-lg border px-4 py-3 hover:bg-emerald-500/10 transition text-left ${
-                        h.next_step?.blocked ? 'border-amber-500/30 bg-amber-500/5' : 'border-emerald-500/30 bg-emerald-500/5'
-                      }`}>
-                      <span className="text-lg">{h.next_step?.blocked ? '⚠' : '🌱'}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-slate-100 truncate">{h.client.name}</div>
-                        <div className="text-xs mt-0.5">
-                          <span className="text-emerald-300">{h.completed}/{h.total}</span>
-                          {h.next_step && (
-                            <span className={h.next_step.blocked ? 'text-amber-400 ml-2' : 'text-slate-500 ml-2'}>
-                              Next: {h.next_step.label}{h.next_step.blocked ? ' (blocked)' : ''}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className="h-1 w-20 rounded-full bg-ink-800 overflow-hidden shrink-0">
-                        <div className="h-full bg-emerald-500" style={{ width: `${(h.completed / h.total) * 100}%` }} />
-                      </div>
-                      <span className="text-xs text-slate-400">→</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+              )}
+            </div>
+          );
+        })}
       </section>
 
-      {/* ═══════ RETENTION — LOOM/CALL TO-DOS ═══════ */}
-      <section className="mb-10">
-        <div className="flex items-baseline gap-3 mb-4">
-          <h2 className="text-lg font-semibold text-slate-100 tracking-tight">Retention</h2>
-          <span className="text-xs text-slate-500">Loom videos · call offers · keep clients engaged</span>
-        </div>
-
-        {(retention_queue || []).length === 0 ? (
-          <div className="rounded-lg border border-ink-700 bg-ink-900/40 p-6 text-center">
-            <div className="text-2xl mb-1">○</div>
-            <div className="text-sm text-slate-400">All retention actions are on track. No Looms or calls due.</div>
+      {/* ââ Retention progress (always visible as context) ââ */}
+      {(retention_queue || []).length > 0 && (
+        <section className="mb-10 rounded-2xl border border-ink-700 bg-ink-900/40 p-6">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-medium text-slate-300">Retention progress today</span>
+            <span className="text-sm tabular-nums text-slate-400">{retentionDone.length}/{retention_queue.length}</span>
           </div>
-        ) : (
-          <div className="space-y-4">
-            {/* Retention progress bar */}
-            <div className="rounded-lg border border-ink-700 bg-ink-900/40 p-4">
-              <div className="flex items-center justify-between text-xs text-slate-400 mb-1.5">
-                <span>Today's retention progress</span>
-                <span className="tabular-nums">{retentionDone.length}/{retention_queue.length} done</span>
-              </div>
-              <div className="h-1.5 rounded-full bg-ink-800 overflow-hidden">
-                <div className="h-full bg-emerald-500 transition-all duration-500"
-                  style={{ width: `${retention_queue.length ? (retentionDone.length / retention_queue.length * 100) : 0}%` }} />
-              </div>
-            </div>
-
-            {/* Due items */}
-            {retentionDue.length > 0 && (
-              <div className="space-y-2">
-                {retentionDue.map(item => (
-                  <RetentionRow key={item.id} item={item}
-                    onOpen={() => setOpenId(item.client.id)}
-                    onAction={() => doRetentionAction(item)}
-                    onSnooze={(d) => snooze(item.client.id, item.action_type === 'loom' ? 'loom' : 'call_offer', d)} />
+          <div className="h-2.5 rounded-full bg-ink-800 overflow-hidden">
+            <div className="h-full bg-emerald-500 transition-all duration-500 rounded-full"
+              style={{ width: `${retention_queue.length ? (retentionDone.length / retention_queue.length * 100) : 0}%` }} />
+          </div>
+          {retentionDone.length > 0 && (
+            <details className="mt-4 group">
+              <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-300 transition">
+                {retentionDone.length} completed today
+              </summary>
+              <div className="space-y-1 mt-2 opacity-50">
+                {retentionDone.map(item => (
+                  <div key={item.id} className="flex items-center gap-3 text-sm text-slate-500 line-through px-1 py-1">
+                    <span className="text-emerald-500">â</span>
+                    <span>{item.action_type === 'loom' ? 'Loom' : 'Call'} â {item.client.name}</span>
+                  </div>
                 ))}
               </div>
-            )}
-
-            {/* Done items (collapsed) */}
-            {retentionDone.length > 0 && (
-              <details className="group">
-                <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-300 transition">
-                  {retentionDone.length} completed today
-                </summary>
-                <div className="space-y-1 mt-2 opacity-50">
-                  {retentionDone.map(item => (
-                    <div key={item.id}
-                      className="flex items-center gap-3 rounded-md px-4 py-2 text-sm text-slate-500 line-through">
-                      <span>✓</span>
-                      <span>{item.action_type === 'loom' ? 'Loom' : 'Call'} — {item.client.name}</span>
-                    </div>
-                  ))}
-                </div>
-              </details>
-            )}
-          </div>
-        )}
-      </section>
+            </details>
+          )}
+        </section>
+      )}
 
       {openId && <ClientDetailDrawer clientId={openId} onClose={() => { setOpenId(null); load(); }} />}
       {confirming && <ConfirmDialog {...confirming} onClose={() => setConfirming(null)} />}
@@ -291,49 +266,182 @@ export default function DayFlow() {
   );
 }
 
-function RetentionRow({ item, onOpen, onAction, onSnooze }) {
-  const { canSeeFinancials } = useRole();
-  const isLoom = item.action_type === 'loom';
-  const borderColor = item.overdue ? 'border-amber-500/30 bg-amber-500/5' : 'border-ink-700 bg-ink-900/40';
+/* ââââââ Phase content (what shows inside each expanded phase) ââââââ */
+
+function PhaseContent({ phase, ops_queue, pulse_pressing, onboarding_heroes, retentionDue, retentionDone, retention_queue, canSeeFinancials, onOpenClient, onOpsAction, onRetentionAction, onSnooze }) {
+  if (phase === 1) return <Phase1Content ops_queue={ops_queue} canSeeFinancials={canSeeFinancials} onOpsAction={onOpsAction} />;
+  if (phase === 2) return <Phase2Content pulse_pressing={pulse_pressing} onboarding_heroes={onboarding_heroes} onOpenClient={onOpenClient} />;
+  if (phase === 3) return <Phase3Content retentionDue={retentionDue} canSeeFinancials={canSeeFinancials} onOpenClient={onOpenClient} onRetentionAction={onRetentionAction} onSnooze={onSnooze} />;
+  return <Phase4Content />;
+}
+
+function Phase1Content({ ops_queue, canSeeFinancials, onOpsAction }) {
+  if (!ops_queue?.length) return <EmptyPhase message="No urgent flags. You're clear." />;
   return (
-    <div className={`flex items-center gap-3 rounded-lg border ${borderColor} px-4 py-3`}>
-      <button onClick={onOpen} className="flex-1 flex items-center gap-3 min-w-0 text-left hover:opacity-80 transition">
-        <StatusDot status={item.client.status} label={false} />
-        <div className="flex-1 min-w-0">
-          <div className="font-medium text-sm truncate">{item.client.name}</div>
-          <div className="text-xs text-slate-400 mt-0.5">
-            {isLoom ? '🎥 Send Loom' : '📞 Offer call'}
-            <span className={`ml-2 ${item.overdue ? 'text-amber-300' : 'text-slate-500'}`}>{item.next_action.hint}</span>
+    <div className="space-y-3 pt-5">
+      <div className="text-xs text-slate-500 mb-1">{ops_queue.length} urgent item{ops_queue.length !== 1 ? 's' : ''} need attention</div>
+      {ops_queue.map(item => (
+        <button key={item.id} onClick={() => onOpsAction(item)}
+          className="w-full flex items-center gap-4 rounded-xl border border-rose-500/30 bg-rose-500/5 px-5 py-4 hover:bg-rose-500/10 transition text-left group">
+          <div className="h-10 w-10 rounded-full bg-rose-500/15 grid place-items-center shrink-0">
+            <span className="text-lg">ð´</span>
           </div>
-        </div>
-        {canSeeFinancials && item.client.mrr ? <span className="text-[10px] tabular-nums text-slate-500 shrink-0">${fmtMRR(item.client.mrr, { compact: true })}</span> : null}
-      </button>
-      <select defaultValue="" onChange={e => { if (e.target.value) { onSnooze(Number(e.target.value)); e.target.value=''; } }}
-        className="bg-ink-800 border border-ink-700 rounded-md text-xs px-2 py-1.5 text-slate-300 shrink-0">
-        <option value="" disabled>Snooze</option>
-        <option value="1">1d</option><option value="2">2d</option><option value="3">3d</option><option value="7">1w</option>
-      </select>
-      <button onClick={onAction} className="btn btn-primary btn-sm shrink-0 text-xs px-3">
-        {isLoom ? 'Loom Sent' : 'Call Offered'}
-      </button>
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-slate-100 group-hover:text-white transition">{item.next_action.label}</div>
+            <div className="text-sm text-rose-300/70 mt-0.5">{item.next_action.hint}{item.flags > 1 ? ` Â· ${item.flags} flags` : ''}</div>
+          </div>
+          {canSeeFinancials && item.client.mrr ? <span className="text-sm tabular-nums text-rose-300/60">${fmtMRR(item.client.mrr, { compact: true })}</span> : null}
+          <span className="text-slate-500 group-hover:text-slate-300 transition text-lg">â</span>
+        </button>
+      ))}
     </div>
   );
 }
 
-function PhaseCheck({ n, label, done, count, onToggle }) {
+function Phase2Content({ pulse_pressing, onboarding_heroes, onOpenClient }) {
+  const hasItems = (pulse_pressing || []).length > 0 || onboarding_heroes.length > 0;
+  if (!hasItems) return <EmptyPhase message="No onboarding clients or pressing Slack signals." />;
   return (
-    <button onClick={onToggle}
-      className={`flex items-center gap-3 rounded-lg border px-3 py-3 text-left transition ${
-        done ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-ink-700 bg-ink-900/40 hover:bg-ink-800'
-      }`}>
-      <span className={`h-5 w-5 rounded-full border-2 grid place-items-center text-[10px] shrink-0 ${
-        done ? 'bg-emerald-500 border-emerald-500 text-ink-950' : 'border-ink-600 text-slate-500'
-      }`}>{done ? '✓' : n}</span>
-      <div className="flex-1 min-w-0">
-        <div className={`text-sm font-medium ${done ? 'text-slate-400 line-through' : 'text-slate-100'}`}>Phase {n}</div>
-        <div className="text-xs text-slate-500 truncate">{label}{count != null ? ` · ${count}` : ''}</div>
+    <div className="space-y-5 pt-5">
+      {/* Onboarding */}
+      {onboarding_heroes.length > 0 && (
+        <div>
+          <div className="text-xs uppercase tracking-wider text-emerald-400/70 font-medium mb-3">Onboarding clients</div>
+          <div className="space-y-3">
+            {onboarding_heroes.map(h => (
+              <button key={h.client.id} onClick={() => onOpenClient(h.client.id)}
+                className={`w-full flex items-center gap-4 rounded-xl border px-5 py-4 hover:brightness-110 transition text-left ${
+                  h.next_step?.blocked ? 'border-amber-500/30 bg-amber-500/5' : 'border-emerald-500/30 bg-emerald-500/5'
+                }`}>
+                <div className="h-10 w-10 rounded-full bg-emerald-500/15 grid place-items-center shrink-0">
+                  <span className="text-xl">{h.next_step?.blocked ? 'â ï¸' : 'ð±'}</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-slate-100">{h.client.name}</div>
+                  <div className="text-sm mt-0.5">
+                    <span className="text-emerald-300 tabular-nums">{h.completed}/{h.total} steps</span>
+                    {h.next_step && (
+                      <span className={`ml-3 ${h.next_step.blocked ? 'text-amber-400' : 'text-slate-500'}`}>
+                        Next: {h.next_step.label}{h.next_step.blocked ? ' (blocked)' : ''}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="w-24 shrink-0">
+                  <div className="h-2 rounded-full bg-ink-800 overflow-hidden">
+                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(h.completed / h.total) * 100}%` }} />
+                  </div>
+                </div>
+                <span className="text-slate-500 text-lg">â</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Slack Pulse */}
+      {(pulse_pressing || []).length > 0 && (
+        <div>
+          <div className="text-xs uppercase tracking-wider text-slate-500 font-medium mb-3">Pressing Slack signals</div>
+          <div className="space-y-3">
+            {pulse_pressing.map(item => {
+              const badge = URGENCY_BADGE[item.urgency] || URGENCY_BADGE.heads_up;
+              return (
+                <div key={item.id}
+                  className={`flex items-start gap-4 rounded-xl border ${badge.bg.includes('rose') ? 'border-rose-500/20' : 'border-amber-500/20'} bg-ink-900/60 px-5 py-4`}>
+                  <span className={`pill text-xs border shrink-0 mt-0.5 ${badge.bg}`}>{badge.label}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs text-slate-500 mb-1">
+                      #{item.channel?.name || 'unknown'}
+                      <span className="ml-2 tabular-nums">{fmtRelative(item.created_at)}</span>
+                    </div>
+                    <div className="text-sm text-slate-200 leading-relaxed">{item.summary || item.classification || 'â'}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Phase3Content({ retentionDue, canSeeFinancials, onOpenClient, onRetentionAction, onSnooze }) {
+  if (!retentionDue?.length) return <EmptyPhase message="All retention actions are on track. No Looms or calls due." />;
+  return (
+    <div className="space-y-3 pt-5">
+      <div className="text-xs text-slate-500 mb-1">{retentionDue.length} action{retentionDue.length !== 1 ? 's' : ''} due</div>
+      {retentionDue.map(item => (
+        <RetentionCard key={item.id} item={item}
+          canSeeFinancials={canSeeFinancials}
+          onOpen={() => onOpenClient(item.client.id)}
+          onAction={() => onRetentionAction(item)}
+          onSnooze={(d) => onSnooze(item.client.id, item.action_type === 'loom' ? 'loom' : 'call_offer', d)} />
+      ))}
+    </div>
+  );
+}
+
+function Phase4Content() {
+  return (
+    <div className="pt-5">
+      <div className="rounded-xl bg-ink-800/40 border border-ink-700/50 p-6 text-center">
+        <div className="text-3xl mb-3">ð¡</div>
+        <div className="text-slate-200 font-medium mb-1">Quick scan</div>
+        <div className="text-sm text-slate-500 max-w-sm mx-auto">
+          Glance at the Activity feed and Slack Pulse. If nothing needs action, you're done for the day.
+        </div>
       </div>
-    </button>
+    </div>
+  );
+}
+
+function EmptyPhase({ message }) {
+  return (
+    <div className="pt-5 text-center py-6">
+      <div className="text-2xl mb-2">â</div>
+      <div className="text-sm text-slate-400">{message}</div>
+    </div>
+  );
+}
+
+/* ââ Retention action card ââ */
+
+function RetentionCard({ item, canSeeFinancials, onOpen, onAction, onSnooze }) {
+  const isLoom = item.action_type === 'loom';
+  return (
+    <div className={`flex items-center gap-4 rounded-xl border px-5 py-4 ${
+      item.overdue ? 'border-amber-500/30 bg-amber-500/5' : 'border-ink-700 bg-ink-900/40'
+    }`}>
+      <button onClick={onOpen} className="flex-1 flex items-center gap-4 min-w-0 text-left hover:opacity-80 transition">
+        <div className={`h-10 w-10 rounded-full grid place-items-center shrink-0 ${
+          isLoom ? 'bg-violet-500/15' : 'bg-sky-500/15'
+        }`}>
+          <span className="text-lg">{isLoom ? 'ð¥' : 'ð'}</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-sm text-slate-100">{item.client.name}</div>
+          <div className="text-sm text-slate-400 mt-0.5">
+            {isLoom ? 'Send Loom' : 'Offer call'}
+            <span className={`ml-2 ${item.overdue ? 'text-amber-300' : 'text-slate-500'}`}>
+              {item.next_action.hint}
+            </span>
+          </div>
+        </div>
+        {canSeeFinancials && item.client.mrr ? (
+          <span className="text-xs tabular-nums text-slate-500 shrink-0">${fmtMRR(item.client.mrr, { compact: true })}</span>
+        ) : null}
+      </button>
+      <select defaultValue="" onChange={e => { if (e.target.value) { onSnooze(Number(e.target.value)); e.target.value=''; } }}
+        className="bg-ink-800 border border-ink-700 rounded-lg text-xs px-2.5 py-2 text-slate-300 shrink-0">
+        <option value="" disabled>Snooze</option>
+        <option value="1">1d</option><option value="2">2d</option><option value="3">3d</option><option value="7">1w</option>
+      </select>
+      <button onClick={onAction} className="btn btn-primary rounded-xl px-4 py-2.5 text-sm font-semibold shrink-0">
+        {isLoom ? 'â Loom Sent' : 'â Call Offered'}
+      </button>
+    </div>
   );
 }
 
