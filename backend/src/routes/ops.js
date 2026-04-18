@@ -17,32 +17,37 @@ export const ONBOARDING_STEPS = [
   { key: 'work_started',                  step: 7, label: 'Work started (reels in progress)',  phase: 'launch' }
 ];
 
-export const CLOSEOUT_STEPS = [
-  { key: 'cancellation_ack',         label: 'Cancellation acknowledged' },
-  { key: 'final_date_confirmed',     label: 'Final delivery date confirmed' },
-  { key: 'production_notified',      label: 'Production team notified in Discord' },
-  { key: 'remaining_delivered',      label: 'Remaining content delivered' },
-  { key: 'handoff_sent',             label: 'Final handoff package sent' },
-  { key: 'access_revoked',           label: 'Access revoked / team disbanded' }
+// Full client lifecycle milestones — onboarding through Day 80/90
+export const LIFECYCLE_STEPS = [
+  // Phase: Onboarding
+  { key: 'form_sent',                     step: 1,  label: 'Onboarding form sent',                        phase: 'onboarding' },
+  { key: 'form_filled',                   step: 2,  label: 'Form filled out by client',                   phase: 'onboarding' },
+  { key: 'sales_material_reviewed',       step: 3,  label: 'Sales handoff Loom reviewed',                 phase: 'onboarding' },
+  { key: 'success_definition_captured',   step: 4,  label: 'Success definition captured',                 phase: 'onboarding', gate: 'success_definition' },
+  { key: 'csm_intro_in_slack',            step: 5,  label: 'CSM intro in Slack (client added to channel)',phase: 'onboarding' },
+  { key: 'onboarding_call_completed',     step: 6,  label: 'Onboarding call completed',                   phase: 'onboarding' },
+  // Phase: First Week
+  { key: 'month1_call_scheduled',         step: 7,  label: 'Month 1 check-in call scheduled',             phase: 'first_week' },
+  { key: 'discord_built',                 step: 8,  label: 'Discord team built',                          phase: 'first_week' },
+  { key: 'content_source_ready',          step: 9,  label: 'Content source set up',                       phase: 'first_week' },
+  { key: 'posting_manager_intro',         step: 10, label: 'Posting Manager introduced (if posting)',     phase: 'first_week' },
+  { key: 'pm_logged_in',                  step: 11, label: 'PM logged into all platforms (96 hrs)',       phase: 'first_week' },
+  { key: 'work_started',                  step: 12, label: 'Work started (reels in progress)',            phase: 'first_week' },
+  { key: 'first_reels_delivered',         step: 13, label: 'First reels delivered (96 hrs)',              phase: 'first_week', highlight: true },
+  // Phase: Retention Handoff
+  { key: 'retention_notified',            step: 14, label: 'Retention Specialist notified',               phase: 'retention_handoff' },
+  { key: 'expectations_loom_sent',        step: 15, label: 'Expectations Loom sent (within 72 hrs)',      phase: 'retention_handoff' },
+  // Phase: First Month
+  { key: 'daily_comms_established',       step: 16, label: 'Daily comms cadence established',             phase: 'first_month' },
+  { key: 'two_week_hype_sent',            step: 17, label: '2-week hype message sent',                    phase: 'first_month' },
+  { key: 'two_week_loom_sent',            step: 18, label: '2-week follow-up Loom sent (retention)',      phase: 'first_month' },
+  { key: 'month1_review_call',            step: 19, label: 'Month 1 review call completed (both attend)', phase: 'first_month' },
+  // Phase: Months 2–3
+  { key: 'loom_cadence_active',           step: 20, label: 'Biweekly Loom cadence active',               phase: 'months_2_3' },
+  { key: 'day60_review',                  step: 21, label: 'Day 60 review call completed (both attend)',  phase: 'months_2_3' },
+  { key: 'day80_review',                  step: 22, label: 'Day 80 review / 90-day continuation prep',   phase: 'months_2_3' },
 ];
-
-export const SITUATION_TYPES = {
-  missed_posting:         { label: 'Missed posting today',      playbook: ['Check Master Sheet status', 'Ping contractor in Discord', 'Confirm reel is ready', 'Follow up with client if needed'] },
-  overdue_batch:          { label: 'Batch overdue (>3 days)',   playbook: ['Check contractor availability', 'Escalate to PM (Emmanuel)', 'Update status + notify client'] },
-  non_responsive:         { label: 'Client non-responsive 48h+', playbook: ['Resend with different framing', 'Loom video touchpoint', 'Call offer', 'Escalate to retention'] },
-  delayed_onboarding:     { label: 'Onboarding stalled',        playbook: ['Check form completion', 'Reoffer call slots', 'Call client directly'] },
-  dark_contractor:        { label: 'Dark contractor',           playbook: ['Last seen check in Discord', 'Reassign workload', 'Coverage change'] },
-  retention_opportunity:  { label: 'Retention opportunity',     playbook: ['Flag for strategist', 'Draft save proposal', 'Schedule strategist call'] },
-  sheet_mismatch:         { label: 'Master Sheet mismatch',     playbook: ['Verify package vs quota', 'Fix sheet entry', 'Notify PM'] },
-  scripted_only:          { label: 'Scripted-only client',      playbook: ['Confirm boundaries', 'Do not push posting cadence', 'Different cadence tier'] },
-  out_of_scope:           { label: 'Out-of-scope request',      playbook: ['Clarify package limits', 'Offer upsell', 'Decline politely if not possible'] },
-  failed_payment:         { label: 'Failed payment',            playbook: ['Check Stripe', 'Notify client', 'Pause delivery if 7+ days overdue'] },
-  month10_review:         { label: 'Month 10 retention review', playbook: ['Schedule retention call', 'Review success definition progress', 'Prepare renewal options', 'Draft retention proposal'] },
-  month10_escalation:     { label: 'Month 10 escalation (day 330)', playbook: ['Urgent retention call', 'Executive outreach', 'Finalize retention offer', 'Prepare churn contingency'] },
-  // CSM → Retention Specialist referral flags
-  views_complaint:        { label: 'Views / performance complaint', playbook: ['Review metrics snapshot', 'Send Results-First Loom within 24h', 'Re-set expectations or goal', 'Follow up in 48h'], assigned_to: 'retention' },
-  engagement_drop:        { label: 'Engagement drop',              playbook: ['Check last Loom response', 'Send re-engagement Loom', 'Offer call if 2+ non-responses', 'Flag non_responsive if no reply'], assigned_to: 'retention' },
-  at_risk:                { label: 'At-risk / churn signal',       playbook: ['Review client health score', 'Priority Loom within 24h', 'Prepare save strategy', 'Coordinate with CSM on next steps'], assigned_to: 'retention' },
+re save strategy', 'Coordinate with CSM on next steps'], assigned_to: 'retention' },
   goal_adjustment_needed: { label: 'Goal adjustment needed',       playbook: ['Review current goal vs actuals', 'Prepare adjusted goal options', 'Send goal-reset Loom', 'Log new goal in CRM'], assigned_to: 'retention' }
 };
 
@@ -222,7 +227,7 @@ router.post('/clients/:id/onboarding/:step/toggle', async (req, res) => {
         step_number: stepDef.step,
         completed_at: steps[step],
         completed_by: req.user?.email || 'unknown'
-      }, { onConflict: 'client_id,step_key' });
+      }, { onConflict: 'client_id,step_key' }).catch(() => {});
     }
 
     const validKeys = ONBOARDING_STEPS.map(s => s.key);
@@ -236,6 +241,76 @@ router.post('/clients/:id/onboarding/:step/toggle', async (req, res) => {
     await supabase.from('clients').update(patch).eq('id', id);
     await logTouchpoint(id, 'system', `Onboarding: ${!wasComplete ? 'completed' : 'reopened'} "${stepDef.label}"`);
     res.json({ ok: true, steps, all_complete: allComplete });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ---------- Lifecycle stepper (unified onboarding → Day 80) ----------
+router.get('/lifecycle-steps', (_req, res) => res.json(LIFECYCLE_STEPS));
+
+router.post('/clients/:id/lifecycle/:step/toggle', async (req, res) => {
+  try {
+    const { id, step } = req.params;
+    const stepDef = LIFECYCLE_STEPS.find(s => s.key === step);
+    if (!stepDef) return res.status(400).json({ error: 'bad step' });
+
+    const { data: client, error } = await supabase.from('clients')
+      .select('lifecycle_steps, onboarding_steps, success_definition')
+      .eq('id', id).single();
+    if (error) throw error;
+
+    // Gate check: success_definition_captured requires success_definition
+    if (stepDef.gate === 'success_definition' && !client.success_definition) {
+      return res.status(422).json({
+        error: 'gate_blocked',
+        message: 'Success definition must be captured before completing this step.',
+        gate: 'success_definition'
+      });
+    }
+
+    const steps = { ...(client.lifecycle_steps || {}) };
+    const wasComplete = !!steps[step];
+    if (wasComplete) {
+      delete steps[step];
+    } else {
+      steps[step] = new Date().toISOString();
+    }
+
+    // Also sync to onboarding_steps for backward compatibility
+    const onboardingKeys = ONBOARDING_STEPS.map(s => s.key);
+    if (onboardingKeys.includes(step)) {
+      const obs = { ...(client.onboarding_steps || {}) };
+      if (wasComplete) delete obs[step];
+      else obs[step] = steps[step];
+      const allOnboardingDone = ONBOARDING_STEPS.map(s => s.key).every(k => obs[k]);
+      const patch = { lifecycle_steps: steps, onboarding_steps: obs };
+      if (allOnboardingDone) {
+        patch.cohort = 'active_happy';
+        patch.onboarding_call_completed = true;
+        patch.onboarding_complete_at = new Date().toISOString();
+      }
+      await supabase.from('clients').update(patch).eq('id', id);
+    } else {
+      await supabase.from('clients').update({ lifecycle_steps: steps }).eq('id', id);
+    }
+
+    // Log to onboarding_step_completions for audit trail (all lifecycle steps)
+    if (!wasComplete) {
+      await supabase.from('onboarding_step_completions').upsert({
+        client_id: id,
+        step_key: step,
+        step_number: stepDef.step,
+        completed_at: steps[step],
+        completed_by: req.user?.email || 'unknown'
+      }, { onConflict: 'client_id,step_key' }).catch(() => {});
+    } else {
+      await supabase.from('onboarding_step_completions').delete()
+        .eq('client_id', id).eq('step_key', step).catch(() => {});
+    }
+
+    const validKeys = LIFECYCLE_STEPS.map(s => s.key);
+    const completed = validKeys.filter(k => steps[k]).length;
+    await logTouchpoint(id, 'system', `Lifecycle: ${!wasComplete ? 'completed' : 'reopened'} "${stepDef.label}"`);
+    res.json({ ok: true, steps, completed, total: validKeys.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
