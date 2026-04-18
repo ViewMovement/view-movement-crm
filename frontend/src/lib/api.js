@@ -56,8 +56,10 @@ export const api = {
   triage:          ()              => request('/api/ops/triage'),
   onboardingSteps: ()              => request('/api/ops/onboarding-steps'),
   closeoutSteps:   ()              => request('/api/ops/closeout-steps'),
+  lifecycleSteps:  ()              => request('/api/ops/lifecycle-steps'),
   toggleOnboarding:(id, step)      => request(`/api/ops/clients/${id}/onboarding/${step}/toggle`, { method: 'POST' }),
   toggleCloseout:  (id, step)      => request(`/api/ops/clients/${id}/closeout/${step}/toggle`, { method: 'POST' }),
+  toggleLifecycle: (id, step)      => request(`/api/ops/clients/${id}/lifecycle/${step}/toggle`, { method: 'POST' }),
   setCohort:       (id, cohort)    => request(`/api/ops/clients/${id}/cohort`, { method: 'POST', body: JSON.stringify({ cohort }) }),
   // Save plans
   listSavePlans:   ()              => request('/api/ops/save-plans'),
