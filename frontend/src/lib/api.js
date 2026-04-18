@@ -2,10 +2,28 @@ import { supabase } from './supabase.js';
 
 const BASE = import.meta.env.VITE_API_URL || '';
 
+// Extract project ref from Supabase URL for localStorage key
+const _projRef = (import.meta.env.VITE_SUPABASE_URL || '').replace('https://', '').split('.')[0];
+
 async function authHeader() {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  // Read token directly from localStorage to avoid getSession() lock issues
+  try {
+    const stored = localStorage.getItem(`sb-${_projRef}-auth-token`);
+    if (stored) {
+      const { access_token } = JSON.parse(stored);
+      if (access_token) return { Authorization: `Bearer ${access_token}` };
+    }
+  } catch {}
+  // Fallback: try getSession with a timeout
+  try {
+    const result = await Promise.race([
+      supabase.auth.getSession(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+    ]);
+    const token = result.data?.session?.access_token;
+    if (token) return { Authorization: `Bearer ${token}` };
+  } catch {}
+  return {};
 }
 
 async function request(path, opts = {}) {
