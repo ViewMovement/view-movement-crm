@@ -36,6 +36,7 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
   const [note, setNote] = useState('');
   const [onboardingDefs, setOnboardingDefs] = useState([]);
   const [closeoutDefs, setCloseoutDefs] = useState([]);
+  const [lifecycleDefs, setLifecycleDefs] = useState([]);
   const [openFlags, setOpenFlags] = useState([]);
   const [health, setHealth] = useState(null);
   const [reviews, setReviews] = useState([]);
@@ -50,13 +51,14 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
   const load = useCallback(async () => {
     if (!clientId) return;
     setClient(null);
-    const [c, o, co, fl] = await Promise.all([
+    const [c, o, co, fl, lc] = await Promise.all([
       api.getClient(clientId),
       api.onboardingSteps().catch(() => []),
       api.closeoutSteps().catch(() => []),
-      api.listFlags().catch(() => ({ flags: [] }))
+      api.listFlags().catch(() => ({ flags: [] })),
+      api.lifecycleSteps().catch(() => [])
     ]);
-    setClient(c); setOnboardingDefs(o); setCloseoutDefs(co);
+    setClient(c); setOnboardingDefs(o); setCloseoutDefs(co); setLifecycleDefs(lc);
     setOpenFlags((fl?.flags || []).filter(f => f.client_id === clientId));
     api.clientHealth(clientId).then(setHealth).catch(() => setHealth(null));
     api.clientReviews(clientId).then(setReviews).catch(() => setReviews([]));
@@ -130,7 +132,19 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
       await api.toggleOnboarding(clientId, step);
       load(); refresh(true);
     } catch (e) {
-      // Handle gate_blocked error from SOP step 3
+      if (e.message?.includes('gate_blocked') || e.message?.includes('Success definition')) {
+        show({ message: 'Fill in the Success Definition above before completing this step.', tone: 'warning' });
+      } else {
+        show({ message: 'Error: ' + e.message });
+      }
+    }
+  }
+
+  async function toggleLifecycleStep(step) {
+    try {
+      await api.toggleLifecycle(clientId, step);
+      load(); refresh(true);
+    } catch (e) {
       if (e.message?.includes('gate_blocked') || e.message?.includes('Success definition')) {
         show({ message: 'Fill in the Success Definition above before completing this step.', tone: 'warning' });
       } else {
@@ -271,12 +285,12 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
               </div>
             )}
 
-            {/* Onboarding stepper (shown when cohort=new or steps incomplete) */}
-            {client.cohort === 'new' || (onboardingDefs.length && !onboardingDefs.every(s => client.onboarding_steps?.[s.key])) ? (
-              <Stepper title="Onboarding"
-                defs={onboardingDefs}
-                done={client.onboarding_steps || {}}
-                onToggle={toggleOnboardingStep}
+            {/* Lifecycle checklist (onboarding → Day 80) — shown unless fully complete */}
+            {lifecycleDefs.length > 0 && !lifecycleDefs.every(s => (client.lifecycle_steps || client.onboarding_steps || {})[s.key]) ? (
+              <Stepper title="Client Lifecycle"
+                defs={lifecycleDefs}
+                done={client.lifecycle_steps || client.onboarding_steps || {}}
+                onToggle={toggleLifecycleStep}
                 client={client} />
             ) : null}
 
@@ -1059,7 +1073,11 @@ function Stepper({ title, defs, done, onToggle, client }) {
   const hasPhases = defs.some(s => s.phase);
   let lastPhase = null;
 
-  const PHASE_LABELS = { pre: 'Pre-onboarding', discovery: 'Discovery', setup: 'Setup', launch: 'Launch' };
+  const PHASE_LABELS = {
+    pre: 'Pre-onboarding', discovery: 'Discovery', setup: 'Setup', launch: 'Launch',
+    onboarding: 'Onboarding', first_week: 'First Week', retention_handoff: 'Retention Handoff',
+    first_month: 'First Month', months_2_3: 'Months 2\u20133'
+  };
 
   return (
     <div>
@@ -1088,17 +1106,19 @@ function Stepper({ title, defs, done, onToggle, client }) {
               )}
               <button onClick={() => onToggle(s.key)}
                 disabled={isGated}
-                title={isGated ? 'Fill in the Success Definition first' : ''}
+                title={isGated ? 'Fill in the Success Definition first' : s.highlight ? 'Key milestone' : ''}
                 className={`w-full flex items-center gap-3 rounded-md px-2.5 py-1.5 text-sm text-left transition ${
                   isDone ? 'bg-emerald-500/5 text-slate-300'
                     : isGated ? 'opacity-50 cursor-not-allowed text-slate-400'
+                    : s.highlight && !isDone ? 'hover:bg-amber-500/10 text-amber-200 bg-amber-500/5 border border-amber-500/20'
                     : 'hover:bg-ink-800 text-slate-200'
                 }`}>
                 <span className={`h-4 w-4 rounded-full border grid place-items-center text-[10px] shrink-0 ${
                   isDone ? 'bg-emerald-500 border-emerald-500 text-ink-950'
                     : isGated ? 'border-amber-500/50 text-amber-500'
+                    : s.highlight ? 'border-amber-400 text-amber-400'
                     : 'border-ink-600 text-slate-500'
-                }`}>{isDone ? '✓' : isGated ? '!' : (s.step || i + 1)}</span>
+                }`}>{isDone ? '✓' : isGated? '!' : s.highlight ? '☆' : (s.step || i + 1)}</span>
                 <span className={`flex-1 ${isDone ? 'line-through text-slate-500' : ''}`}>
                   {s.label}
                   {isGated && <span className="text-[10px] text-amber-400 ml-2">requires success definition</span>}
