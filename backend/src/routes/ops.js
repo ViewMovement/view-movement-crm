@@ -42,12 +42,38 @@ export const LIFECYCLE_STEPS = [
   { key: 'two_week_hype_sent',            step: 17, label: '2-week hype message sent',                    phase: 'first_month' },
   { key: 'two_week_loom_sent',            step: 18, label: '2-week follow-up Loom sent (retention)',      phase: 'first_month' },
   { key: 'month1_review_call',            step: 19, label: 'Month 1 review call completed (both attend)', phase: 'first_month' },
-  // Phase: Months 2–3
+  // Phase: Months 2-3
   { key: 'loom_cadence_active',           step: 20, label: 'Biweekly Loom cadence active',               phase: 'months_2_3' },
   { key: 'day60_review',                  step: 21, label: 'Day 60 review call completed (both attend)',  phase: 'months_2_3' },
   { key: 'day80_review',                  step: 22, label: 'Day 80 review / 90-day continuation prep',   phase: 'months_2_3' },
 ];
-re save strategy', 'Coordinate with CSM on next steps'], assigned_to: 'retention' },
+
+export const CLOSEOUT_STEPS = [
+  { key: 'cancellation_ack',         label: 'Cancellation acknowledged' },
+  { key: 'final_date_confirmed',     label: 'Final delivery date confirmed' },
+  { key: 'production_notified',      label: 'Production team notified in Discord' },
+  { key: 'remaining_delivered',      label: 'Remaining content delivered' },
+  { key: 'handoff_sent',             label: 'Final handoff package sent' },
+  { key: 'access_revoked',           label: 'Access revoked / team disbanded' }
+];
+
+export const SITUATION_TYPES = {
+  missed_posting:         { label: 'Missed posting today',      playbook: ['Check Master Sheet status', 'Ping contractor in Discord', 'Confirm reel is ready', 'Follow up with client if needed'] },
+  overdue_batch:          { label: 'Batch overdue (>3 days)',   playbook: ['Check contractor availability', 'Escalate to PM (Emmanuel)', 'Update status + notify client'] },
+  non_responsive:         { label: 'Client non-responsive 48h+', playbook: ['Resend with different framing', 'Loom video touchpoint', 'Call offer', 'Escalate to retention'] },
+  delayed_onboarding:     { label: 'Onboarding stalled',        playbook: ['Check form completion', 'Reoffer call slots', 'Call client directly'] },
+  dark_contractor:        { label: 'Dark contractor',           playbook: ['Last seen check in Discord', 'Reassign workload', 'Coverage change'] },
+  retention_opportunity:  { label: 'Retention opportunity',     playbook: ['Flag for strategist', 'Draft save proposal', 'Schedule strategist call'] },
+  sheet_mismatch:         { label: 'Master Sheet mismatch',     playbook: ['Verify package vs quota', 'Fix sheet entry', 'Notify PM'] },
+  scripted_only:          { label: 'Scripted-only client',      playbook: ['Confirm boundaries', 'Do not push posting cadence', 'Different cadence tier'] },
+  out_of_scope:           { label: 'Out-of-scope request',      playbook: ['Clarify package limits', 'Offer upsell', 'Decline politely if not possible'] },
+  failed_payment:         { label: 'Failed payment',            playbook: ['Check Stripe', 'Notify client', 'Pause delivery if 7+ days overdue'] },
+  month10_review:         { label: 'Month 10 retention review', playbook: ['Schedule retention call', 'Review success definition progress', 'Prepare renewal options', 'Draft retention proposal'] },
+  month10_escalation:     { label: 'Month 10 escalation (day 330)', playbook: ['Urgent retention call', 'Executive outreach', 'Finalize retention offer', 'Prepare churn contingency'] },
+  // CSM → Retention Specialist referral flags
+  views_complaint:        { label: 'Views / performance complaint', playbook: ['Review metrics snapshot', 'Send Results-First Loom within 24h', 'Re-set expectations or goal', 'Follow up in 48h'], assigned_to: 'retention' },
+  engagement_drop:        { label: 'Engagement drop',              playbook: ['Check last Loom response', 'Send re-engagement Loom', 'Offer call if 2+ non-responses', 'Flag non_responsive if no reply'], assigned_to: 'retention' },
+  at_risk:                { label: 'At-risk / churn signal',       playbook: ['Review client health score', 'Priority Loom within 24h', 'Prepare save strategy', 'Coordinate with CSM on next steps'], assigned_to: 'retention' },
   goal_adjustment_needed: { label: 'Goal adjustment needed',       playbook: ['Review current goal vs actuals', 'Prepare adjusted goal options', 'Send goal-reset Loom', 'Log new goal in CRM'], assigned_to: 'retention' }
 };
 
@@ -227,7 +253,7 @@ router.post('/clients/:id/onboarding/:step/toggle', async (req, res) => {
         step_number: stepDef.step,
         completed_at: steps[step],
         completed_by: req.user?.email || 'unknown'
-      }, { onConflict: 'client_id,step_key' }).catch(() => {});
+      }, { onConflict: 'client_id,step_key' });
     }
 
     const validKeys = ONBOARDING_STEPS.map(s => s.key);
@@ -244,7 +270,8 @@ router.post('/clients/:id/onboarding/:step/toggle', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ---------- Lifecycle stepper (unified onboarding → Day 80) ----------
+
+// ---------- Lifecycle stepper (unified onboarding -> Day 80) ----------
 router.get('/lifecycle-steps', (_req, res) => res.json(LIFECYCLE_STEPS));
 
 router.post('/clients/:id/lifecycle/:step/toggle', async (req, res) => {
@@ -293,7 +320,7 @@ router.post('/clients/:id/lifecycle/:step/toggle', async (req, res) => {
       await supabase.from('clients').update({ lifecycle_steps: steps }).eq('id', id);
     }
 
-    // Log to onboarding_step_completions for audit trail (all lifecycle steps)
+    // Log to onboarding_step_completions for audit trail
     if (!wasComplete) {
       await supabase.from('onboarding_step_completions').upsert({
         client_id: id,
