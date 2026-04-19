@@ -1,4 +1,4 @@
-// Ops & Retention routes: triage, steppers, save plans, flags, billing.
+h// Ops & Retention routes: triage, steppers, save plans, flags, billing.
 import { Router } from 'express';
 import { supabase } from '../lib/supabase.js';
 import { logTouchpoint } from '../lib/clientOps.js';
@@ -328,10 +328,10 @@ router.post('/clients/:id/lifecycle/:step/toggle', async (req, res) => {
         step_number: stepDef.step,
         completed_at: steps[step],
         completed_by: req.user?.email || 'unknown'
-      }, { onConflict: 'client_id,step_key' }).catch(() => {});
+      }, { onConflict: 'client_id,step_key' });
     } else {
       await supabase.from('onboarding_step_completions').delete()
-        .eq('client_id', id).eq('step_key', step).catch(() => {});
+        .eq('client_id', id).eq('step_key', step);
     }
 
     const validKeys = LIFECYCLE_STEPS.map(s => s.key);
@@ -635,12 +635,12 @@ router.get('/day', async (req, res) => {
           // Auto-create month 10 review flag (fire-and-forget)
           supabase.from('situation_flags').insert({ client_id: c.id, type: 'month10_review', detail: `Auto-generated at day ${tenureDays}` })
             .then(() => logTouchpoint(c.id, 'system', `Month 10 retention review auto-flagged (day ${tenureDays})`))
-            .catch(() => {});
+            ;
         }
         if (tenureDays >= 330 && !hasM10Esc) {
           supabase.from('situation_flags').insert({ client_id: c.id, type: 'month10_escalation', detail: `Auto-escalated at day ${tenureDays} — no resolution on month 10 review` })
             .then(() => logTouchpoint(c.id, 'system', `Month 10 ESCALATION auto-flagged (day ${tenureDays})`))
-            .catch(() => {});
+            ;
         }
       }
 
@@ -652,7 +652,7 @@ router.get('/day', async (req, res) => {
             client_id: c.id, type: 'non_responsive',
             detail: `Auto-flagged: ${clientUnresponded.length} consecutive unresponded Looms`
           }).then(() => logTouchpoint(c.id, 'system', `Non-responsive auto-flag: ${clientUnresponded.length} unresponded Looms`))
-            .catch(() => {});
+            ;
         }
       }
 
