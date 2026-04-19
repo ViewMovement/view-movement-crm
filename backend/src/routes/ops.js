@@ -1,4 +1,4 @@
-h// Ops & Retention routes: triage, steppers, save plans, flags, billing.
+// Ops & Retention routes: triage, steppers, save plans, flags, billing.
 import { Router } from 'express';
 import { supabase } from '../lib/supabase.js';
 import { logTouchpoint } from '../lib/clientOps.js';
