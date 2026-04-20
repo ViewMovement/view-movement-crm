@@ -61,6 +61,8 @@ export const api = {
   toggleCloseout:  (id, step)      => request(`/api/ops/clients/${id}/closeout/${step}/toggle`, { method: 'POST' }),
   toggleLifecycle: (id, step)      => request(`/api/ops/clients/${id}/lifecycle/${step}/toggle`, { method: 'POST' }),
   setCohort:       (id, cohort)    => request(`/api/ops/clients/${id}/cohort`, { method: 'POST', body: JSON.stringify({ cohort }) }),
+  getLoomCadence:  (id)            => request(`/api/ops/clients/${id}/loom-cadence`),
+  setLoomCadence:  (id, days)      => request(`/api/ops/clients/${id}/loom-cadence`, { method: 'POST', body: JSON.stringify({ cadence_days: days }) }),
   // Save plans
   listSavePlans:   ()              => request('/api/ops/save-plans'),
   createSavePlan:  (body)          => request('/api/ops/save-plans', { method: 'POST', body: JSON.stringify(body) }),
