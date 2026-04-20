@@ -44,6 +44,7 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
   const [showLoomModal, setShowLoomModal] = useState(false);
   const [showRetentionFlag, setShowRetentionFlag] = useState(false);
   const [retentionFlagDetail, setRetentionFlagDetail] = useState('');
+  const [loomCadence, setLoomCadence] = useState(null);
   const { refresh } = useData();
   const { show } = useToast();
   const { canSeeFinancials } = useRole();
@@ -63,6 +64,7 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
     api.clientHealth(clientId).then(setHealth).catch(() => setHealth(null));
     api.clientReviews(clientId).then(setReviews).catch(() => setReviews([]));
     api.clientLooms(clientId).then(setLooms).catch(() => setLooms([]));
+    api.getLoomCadence(clientId).then(setLoomCadence).catch(() => setLoomCadence(null));
   }, [clientId]);
 
   useEffect(() => { load(); }, [load]);
@@ -357,15 +359,24 @@ export default function ClientDetailDrawer({ clientId, onClose }) {
               )}
             </div>
 
-            {/* Timers */}
-            <div className="grid grid-cols-2 gap-3">
-              <TimerBlock timer={client.timers?.loom} label="Loom"
-                onAction={() => setShowLoomModal(true)}
-                onSnooze={(d) => snooze('loom', d)} />
-              <TimerBlock timer={client.timers?.call_offer} label="Call Offer"
-                onAction={() => doAction('call_offered', 'Call Offered')}
-                onSnooze={(d) => snooze('call_offer', d)} />
-            </div>
+            {/* Loom card — cadence + timer + history */}
+            <LoomCard
+              client={client}
+              loomCadence={loomCadence}
+              looms={looms}
+              onSendLoom={() => setShowLoomModal(true)}
+              onSnooze={(d) => snooze('loom', d)}
+              onCadenceChange={async (days) => {
+                await api.setLoomCadence(clientId, days);
+                load(); refresh(true);
+                show({ message: days ? `Loom cadence \u2192 every ${days} days` : 'Loom cadence \u2192 global default' });
+              }}
+            />
+
+            {/* Call Offer timer */}
+            <TimerBlock timer={client.timers?.call_offer} label="Call Offer"
+              onAction={() => doAction('call_offered', 'Call Offered')}
+              onSnooze={(d) => snooze('call_offer', d)} />
 
             {/* Reviews — Day 30/60/80 + QBRs */}
             {reviews.length > 0 && (
@@ -676,6 +687,133 @@ function EditableContextField({ label, value, placeholder, tone, onSave }) {
       ) : (
         <div className="text-sm text-slate-500 italic">{placeholder}</div>
       )}
+    </div>
+  );
+}
+
+const CADENCE_PRESETS = [
+  { label: 'Weekly', days: 7 },
+  { label: 'Biweekly', days: 14 },
+  { label: 'Every 3 weeks', days: 21 },
+  { label: 'Monthly', days: 30 },
+  { label: 'Every 6 weeks', days: 42 },
+  { label: 'Every 2 months', days: 60 },
+];
+
+function LoomCard({ client, loomCadence, looms, onSendLoom, onSnooze, onCadenceChange }) {
+  const [showCadencePicker, setShowCadencePicker] = useState(false);
+  const [customDays, setCustomDays] = useState('');
+  const timer = client.timers?.loom;
+  const overdue = timer?.is_overdue;
+  const effectiveCadence = loomCadence?.effective_cadence || 21;
+  const lastLoom = looms?.[0];
+
+  function cadenceLabel(days) {
+    const preset = CADENCE_PRESETS.find(p => p.days === days);
+    if (preset) return preset.label;
+    return `Every ${days} days`;
+  }
+
+  async function handlePreset(days) {
+    await onCadenceChange(days);
+    setShowCadencePicker(false);
+  }
+
+  async function handleCustom() {
+    const n = parseInt(customDays, 10);
+    if (n >= 3 && n <= 90) {
+      await onCadenceChange(n);
+      setCustomDays('');
+      setShowCadencePicker(false);
+    }
+  }
+
+  async function handleResetToGlobal() {
+    await onCadenceChange(null);
+    setShowCadencePicker(false);
+  }
+
+  return (
+    <div className={`rounded-lg border p-4 ${overdue ? 'border-rose-500/40 bg-rose-500/5' : 'border-violet-500/30 bg-violet-500/5'}`}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-base">\u{1F3A5}</span>
+          <span className="text-sm font-semibold text-slate-200">Loom</span>
+        </div>
+        <span className={`pill text-[10px] ${overdue ? 'bg-rose-500/15 text-rose-300' : 'bg-violet-500/15 text-violet-300'}`}>
+          {overdue ? 'Overdue' : 'On track'}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="rounded-md bg-ink-800/60 border border-ink-700 px-3 py-2">
+          <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-0.5">Cadence</div>
+          <button
+            onClick={() => setShowCadencePicker(!showCadencePicker)}
+            className="text-sm text-violet-300 hover:text-violet-200 transition font-medium flex items-center gap-1">
+            {cadenceLabel(effectiveCadence)}
+            {!loomCadence?.cadence_days && <span className="text-[9px] text-slate-500 ml-1">(global)</span>}
+            <span className="text-[10px] text-slate-600">\u25BE</span>
+          </button>
+        </div>
+        <div className="rounded-md bg-ink-800/60 border border-ink-700 px-3 py-2">
+          <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-0.5">Next due</div>
+          {timer ? (
+            <div className={`text-sm font-medium tabular-nums ${overdue ? 'text-rose-300' : 'text-slate-200'}`}>
+              {fmtRelative(timer.next_due_at)}
+            </div>
+          ) : (
+            <div className="text-sm text-slate-500">No timer</div>
+          )}
+        </div>
+      </div>
+
+      {showCadencePicker && (
+        <div className="rounded-md border border-violet-500/30 bg-ink-900 p-2 mb-3 space-y-1">
+          {CADENCE_PRESETS.map(p => (
+            <button key={p.days} onClick={() => handlePreset(p.days)}
+              className={`w-full text-left px-2.5 py-1.5 rounded text-xs transition ${
+                effectiveCadence === p.days
+                  ? 'bg-violet-500/20 text-violet-200 border border-violet-500/30'
+                  : 'text-slate-300 hover:bg-ink-800'
+              }`}>
+              {p.label} <span className="text-slate-500">({p.days}d)</span>
+            </button>
+          ))}
+          <div className="flex items-center gap-2 mt-1 pt-1 border-t border-ink-700">
+            <input type="number" min={3} max={90}
+              className="bg-ink-800 border border-ink-700 rounded px-2 py-1 text-xs w-16 outline-none focus:ring-1 focus:ring-violet-500/40"
+              placeholder="Days" value={customDays} onChange={e => setCustomDays(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleCustom(); }} />
+            <button onClick={handleCustom}
+              className="text-xs text-violet-300 hover:text-violet-200 px-2 py-1 rounded hover:bg-violet-500/10">Set custom</button>
+            {loomCadence?.cadence_days && (
+              <button onClick={handleResetToGlobal}
+                className="text-xs text-slate-500 hover:text-slate-300 px-2 py-1 rounded hover:bg-ink-800 ml-auto">Reset to global</button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {lastLoom && (
+        <div className="text-[11px] text-slate-500 mb-3 flex items-center gap-2">
+          <span>Last: {lastLoom.topic}</span>
+          <span className="text-slate-600">\u00B7</span>
+          <span className="tabular-nums">{fmtDate(lastLoom.sent_at)}</span>
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <button className="btn btn-primary btn-sm flex-1" onClick={onSendLoom}>Log Loom Sent</button>
+        <select className="bg-ink-800 border border-ink-700 rounded-md text-xs px-2 py-1" defaultValue=""
+          onChange={e => { if (e.target.value) { onSnooze(Number(e.target.value)); e.target.value=''; } }}>
+          <option value="" disabled>Snooze\u2026</option>
+          <option value="1">1 day</option>
+          <option value="2">2 days</option>
+          <option value="3">3 days</option>
+          <option value="7">1 week</option>
+        </select>
+      </div>
     </div>
   );
 }
