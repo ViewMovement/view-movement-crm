@@ -19,7 +19,7 @@ export const ONBOARDING_STEPS = [
 
 // Full client lifecycle milestones — onboarding through Day 80/90
 export const LIFECYCLE_STEPS = [
-  // Phase: Onboarding
+  // Phase: Onboardingh
   { key: 'form_sent',                     step: 1,  label: 'Onboarding form sent',                        phase: 'onboarding' },
   { key: 'form_filled',                   step: 2,  label: 'Form filled out by client',                   phase: 'onboarding' },
   { key: 'sales_material_reviewed',       step: 3,  label: 'Sales handoff Loom reviewed',                 phase: 'onboarding' },
@@ -829,10 +829,98 @@ router.post('/clients/:id/cohort', async (req, res) => {
     const { cohort } = req.body || {};
     const valid = ['new','active_happy','active_hands_off','cancelling','churned'];
     if (!valid.includes(cohort)) return res.status(400).json({ error: 'bad cohort' });
+
+    // Auto-fill lifecycle steps 1-16 when cohort is anything other than "new"
+    // These cover onboarding, first week, retention handoff, and daily comms established
+    const updatePayload = { cohort };
+    if (cohort !== 'new') {
+      const { data: existing } = await supabase.from('clients')
+        .select('lifecycle_steps').eq('id', req.params.id).single();
+      const current = existing?.lifecycle_steps || {};
+      const now = new Date().toISOString();
+      const autoSteps = LIFECYCLE_STEPS.filter(s => s.step <= 16);
+      const merged = { ...current };
+      for (const s of autoSteps) {
+        if (!merged[s.key]) merged[s.key] = now;
+      }
+      updatePayload.lifecycle_steps = merged;
+    }
+
     const { data, error } = await supabase.from('clients')
-      .update({ cohort }).eq('id', req.params.id).select().single();
+      .update(updatePayload).eq('id', req.params.id).select().single();
     if (error) throw error;
-    await logTouchpoint(req.params.id, 'system', `Cohort → ${cohort}`);
+    await logTouchpoint(req.params.id, 'system', `Cohort \u2192 ${cohort}`);
+    res.json(data);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ---------- Per-client Loom cadence ----------
+router.get('/clients/:id/loom-cadence', async (req, res) => {
+  try {
+    const { data: client, error } = await supabase.from('clients')
+      .select('id, name, loom_cadence_days')
+      .eq('id', req.params.id).single();
+    if (error) throw error;
+
+    const { data: timer } = await supabase.from('timers')
+      .select('*').eq('client_id', req.params.id).eq('timer_type', 'loom').maybeSingle();
+
+    const { data: lastLoom } = await supabase.from('loom_entries')
+      .select('id, topic, sent_at')
+      .eq('client_id', req.params.id)
+      .order('sent_at', { ascending: false })
+      .limit(1).maybeSingle();
+
+    const userEmail = req.user?.email || 'default';
+    const { data: settings } = await supabase.from('user_settings')
+      .select('loom_interval_days').eq('user_email', userEmail).maybeSingle();
+    const globalDefault = settings?.loom_interval_days || 21;
+
+    res.json({
+      client_id: client.id,
+      client_name: client.name,
+      cadence_days: client.loom_cadence_days,
+      effective_cadence: client.loom_cadence_days || globalDefault,
+      global_default: globalDefault,
+      timer: timer ? {
+        next_due_at: timer.next_due_at,
+        is_overdue: new Date(timer.next_due_at) <= new Date(),
+        days_until: Math.ceil((new Date(timer.next_due_at) - new Date()) / 86400000)
+      } : null,
+      last_loom: lastLoom ? { topic: lastLoom.topic, sent_at: lastLoom.sent_at } : null
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/clients/:id/loom-cadence', async (req, res) => {
+  try {
+    const { cadence_days } = req.body || {};
+    if (cadence_days !== null && (typeof cadence_days !== 'number' || cadence_days < 3 || cadence_days > 90)) {
+      return res.status(400).json({ error: 'cadence_days must be null or a number between 3 and 90' });
+    }
+
+    const { data, error } = await supabase.from('clients')
+      .update({ loom_cadence_days: cadence_days })
+      .eq('id', req.params.id).select().single();
+    if (error) throw error;
+
+    if (cadence_days) {
+      const { data: lastLoom } = await supabase.from('loom_entries')
+        .select('sent_at')
+        .eq('client_id', req.params.id)
+        .order('sent_at', { ascending: false })
+        .limit(1).maybeSingle();
+
+      if (lastLoom) {
+        const newDue = addDays(new Date(lastLoom.sent_at), cadence_days).toISOString();
+        await supabase.from('timers')
+          .update({ next_due_at: newDue })
+          .eq('client_id', req.params.id)
+          .eq('timer_type', 'loom');
+      }
+    }
+
+    await logTouchpoint(req.params.id, 'system', `Loom cadence \u2192 ${cadence_days ? cadence_days + ' days' : 'global default'}`);
     res.json(data);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
