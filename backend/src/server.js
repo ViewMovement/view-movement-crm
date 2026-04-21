@@ -19,7 +19,7 @@ import { startCancellationPoller } from './jobs/cancellationSync.js';
 import { startSlackDigestJob } from './jobs/slackDigest.js';
 
 const app = express();
-app.use(cors({ origin: process.env.FRONTEND_ORIGIN || true }));
+app.use(cors({ origin: process.env.FRONTEND_ORIGIN || true }));h
 app.use(express.json({ limit: '1mb' }));
 app.use(morgan('tiny'));
 
@@ -72,7 +72,7 @@ const port = process.env.PORT || 8080;
 app.listen(port, () => {
   console.log(`[crm-backend] listening on :${port}`);
   if (process.env.ENABLE_POLLERS !== 'false') {
-    startOnboardingPoller();
+        // startOnboardingPoller(); // DISABLED — was pulling all historical rows
     startCancellationPoller();
     startSlackDigestJob();
   }
