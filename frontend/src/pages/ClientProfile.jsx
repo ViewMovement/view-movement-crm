@@ -2,7 +2,9 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import StatusBadge from '../components/StatusBadge.jsx';
+import LifecycleChecklist from '../components/LifecycleChecklist.jsx';
 import { fmtDate, fmtRelative, touchpointLabel } from '../lib/format.js';
+import { getClientStage, PIPELINE_SECTIONS, countCompleted, TOTAL_STEPS } from '../lib/lifecycle.js';
 
 export default function ClientProfile() {
   const { id } = useParams();
@@ -12,10 +14,11 @@ export default function ClientProfile() {
 
   const load = useCallback(async () => setClient(await api.getClient(id)), [id]);
   useEffect(() => { load(); }, [load]);
-  if (!client) return <div className="text-slate-400">Loading…</div>;
+  if (!client) return <div className="text-slate-400">Loadingâ¦</div>;
 
   const loom = client.timers?.loom;
   const call = client.timers?.call_offer;
+  const expLoom = client.timers?.expectations_loom;
 
   async function patch(fields) { await api.updateClient(id, fields); load(); }
   async function doAction(type) { await api.action(id, type); load(); }
@@ -29,21 +32,21 @@ export default function ClientProfile() {
 
   return (
     <div className="space-y-6">
-      <Link to="/" className="text-sm text-slate-400 hover:text-slate-200">← Back to dashboard</Link>
+      <Link to="/pipeline" className="text-sm text-slate-400 hover:text-slate-200">â Back to pipeline</Link>
 
       <div className="card p-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-semibold">{client.name}</h1>
             <div className="text-sm text-slate-400 mt-1">
-              {client.company || '—'} · {client.email || 'no email on file'}
+              {client.company || 'â'} Â· {client.email || 'no email on file'}
             </div>
           </div>
           <StatusBadge status={client.status} onChange={s => patch({ status: s })} />
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 text-sm">
-          <Field label="Package" value={client.package ? `${client.package} reels` : '—'} editable onSave={v => patch({ package: v })} />
+          <Field label="Package" value={client.package ? `${client.package} reels` : 'â'} editable onSave={v => patch({ package: v })} />
           <Field label="Billing date" value={client.billing_date ?? ''} placeholder="1 or 14" editable onSave={v => patch({ billing_date: v ? Number(v) : null })} />
           <Field label="Content source" value={client.content_source ?? ''} editable onSave={v => patch({ content_source: v })} />
           <Field label="MRR" value={client.mrr ?? ''} editable onSave={v => patch({ mrr: v ? Number(v) : null })} />
@@ -62,10 +65,25 @@ export default function ClientProfile() {
         )}
       </div>
 
+      <LifecycleChecklist clientId={id} steps={client.lifecycle_steps} onChange={load} />
+
       <div className="grid md:grid-cols-2 gap-4">
         <TimerCard label="Loom timer" timer={loom} onReset={() => resetTimer('loom')} onAction={() => doAction('loom_sent')} actionLabel="Loom Sent" />
         <TimerCard label="Call Offer timer" timer={call} onReset={() => resetTimer('call_offer')} onAction={() => doAction('call_offered')} actionLabel="Call Offered" />
       </div>
+
+      {expLoom && (
+        <div className="grid md:grid-cols-1 gap-4">
+          <TimerCard
+            label="â° Expectations Loom (72h deadline)"
+            timer={expLoom}
+            onReset={() => resetTimer('expectations_loom')}
+            onAction={() => doAction('expectations_loom_sent')}
+            actionLabel="Expectations Loom Sent"
+            accent
+          />
+        </div>
+      )}
 
       <div className="card p-5">
         <h3 className="font-semibold mb-2">Add a note</h3>
@@ -73,7 +91,7 @@ export default function ClientProfile() {
         <div className="flex justify-between mt-3">
           <button className="btn" onClick={() => doAction('call_completed')}>Log "Call Completed"</button>
           <button className="btn btn-primary" onClick={saveNote} disabled={saving || !note.trim()}>
-            {saving ? 'Saving…' : 'Save note'}
+            {saving ? 'Savingâ¦' : 'Save note'}
           </button>
         </div>
       </div>
@@ -111,7 +129,7 @@ function Field({ label, value, placeholder, editable, onSave }) {
           onChange={e => setV(e.target.value)}
           onBlur={() => v !== (value ?? '') && onSave?.(v)} />
       ) : (
-        <div className="text-slate-200">{value || '—'}</div>
+        <div className="text-slate-200">{value || 'â'}</div>
       )}
     </div>
   );
@@ -126,15 +144,15 @@ function Info({ label, value }) {
   );
 }
 
-function TimerCard({ label, timer, onReset, onAction, actionLabel }) {
+function TimerCard({ label, timer, onReset, onAction, actionLabel, accent }) {
   if (!timer) return <div className="card p-5">{label}: no timer</div>;
   const overdue = timer.is_overdue;
   return (
-    <div className={`card p-5 ${overdue ? 'border-red-500/50' : ''}`}>
+    <div className={`card p-5 ${overdue ? 'border-red-500/50' : accent ? 'border-violet-500/50' : ''}`}>
       <div className="flex items-center justify-between">
-        <h3 className="font-semibold">{label}</h3>
-        <span className={`pill ${overdue ? 'bg-red-500/15 text-red-300' : 'bg-emerald-500/10 text-emerald-300'}`}>
-          {overdue ? 'Overdue' : 'On track'}
+        <h3 className={`font-semibold ${accent ? 'text-violet-300' : ''}`}>{label}</h3>
+        <span className={`pill ${overdue ? 'bg-red-500/15 text-red-300' : accent ? 'bg-violet-500/10 text-violet-300' : 'bg-emerald-500/10 text-emerald-300'}`}>
+          {overdue ? 'OVERDUE' : 'On track'}
         </span>
       </div>
       <div className="mt-2 text-sm text-slate-300">
