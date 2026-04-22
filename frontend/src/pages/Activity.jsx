@@ -1,188 +1,98 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api.js';
-import { fmtDate, touchpointLabel } from '../lib/format.js';
+import { fmtDateTime } from '../lib/format.js';
 
-const STATUS_COLORS = { green: 'bg-emerald-400', yellow: 'bg-yellow-400', red: 'bg-red-400', churned: 'bg-slate-500' };
+const STATUS_DOT = {
+  green: 'bg-emerald-400', yellow: 'bg-yellow-400', red: 'bg-red-400', churned: 'bg-slate-500',
+};
 
-const TYPES = [
-  { value: 'all', label: 'All' },
-  { value: 'loom_sent', label: 'Looms' },
-  { value: 'call_offered', label: 'Calls offered' },
-  { value: 'call_completed', label: 'Calls done' },
-  { value: 'note', label: 'Notes' },
-  { value: 'status_change', label: 'Status' },
-  { value: 'system', label: 'System' }
-];
+const TYPE_LABELS = {
+  loom_sent: 'Loom Sent',
+  call_offered: 'Call Offered',
+  call_completed: 'Call Done',
+  expectations_loom_sent: 'Exp. Loom',
+  note: 'Note',
+  status_change: 'Status',
+  system: 'System',
+};
+
+const FILTERS = ['all', 'loom_sent', 'call_offered', 'call_completed', 'note', 'status_change', 'system'];
+const FILTER_LABELS = {
+  all: 'All', loom_sent: 'Looms', call_offered: 'Calls offered',
+  call_completed: 'Calls done', note: 'Notes', status_change: 'Status', system: 'System',
+};
 
 export default function Activity() {
-  const [items, setItems] = useState(null);
-  const [type, setType] = useState('all');
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('all');
 
-  useEffect(() => { api.activity(300).then(setItems); }, []);
+  useEffect(() => {
+    api.getActivity(300).then(setItems).catch(console.error).finally(() => setLoading(false));
+  }, []);
 
   const filtered = useMemo(() => {
-    if (!items) return null;
-    return type === 'all' ? items : items.filter(i => i.type === type);
-  }, [items, type]);
+    if (filter === 'all') return items;
+    return items.filter(t => t.type === filter);
+  }, [items, filter]);
 
+  // Group by day
   const grouped = useMemo(() => {
-    if (!filtered) return null;
-    const by = {};
-    for (const it of filtered) {
-      const day = new Date(it.created_at); day.setHours(0,0,0,0);
-      const key = day.toISOString();
-      if (!by[key]) by[key] = [];
-      by[key].push(it);
-    }
-    return Object.entries(by).sort((a, b) => b[0].localeCompare(a[0]));
+    const map = {};
+    filtered.forEach(t => {
+      const day = new Date(t.created_at).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+      if (!map[day]) map[day] = [];
+      map[day].push(t);
+    });
+    return Object.entries(map);
   }, [filtered]);
 
-  if (!items) return <div className="text-slate-400">Loading...</div>;
+  if (loading) return <p className="text-slate-400">Loading activity...</p>;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold">Activity</h2>
-        <p className="text-sm text-slate-400 mt-1">
-          {items.length} touchpoints &middot; last 300 across all clients
-        </p>
-      </div>
+    <div className="max-w-3xl mx-auto">
+      <h2 className="text-xl font-bold text-white mb-4">Activity</h2>
 
-      <div className="flex gap-2 flex-wrap">
-        {TYPES.map(t => (
-          <button key={t.value} onClick={() => setType(t.value)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              type === t.value
-                ? 'bg-ink-700 text-white'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-ink-800'
-            }`}>{t.label}</button>
+      {/* Filters */}
+      <div className="flex flex-wrap gap-2 mb-6">
+        {FILTERS.map(f => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={
+              'px-3 py-1 rounded-full text-xs font-medium transition-colors ' +
+              (filter === f ? 'bg-ink-700 text-white' : 'text-slate-400 hover:text-white hover:bg-ink-800')
+            }
+          >
+            {FILTER_LABELS[f]}
+          </button>
         ))}
       </div>
 
-      {grouped && grouped.length === 0 ? (
-        <div className="card p-8 text-center text-slate-400">No activity matches this filter.</div>
-      ) : (
-        <div className="space-y-6">
-          {grouped && grouped.map(([dayKey, rows]) => (
-            <section key={dayKey}>
-              <div className="text-xs uppercase tracking-wide text-slate-500 mb-2 sticky top-14 bg-ink-950/80 backdrop-blur py-1">
-                {fmtDate(dayKey)} <span className="text-slate-600">&middot; {rows.length}</span>
-              </div>
-              <div className="space-y-1.5">
-                {rows.map(r => (
-                  <Link
-                    key={r.id}
-                    to={`/clients/${r.client_id}`}
-                    className="w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg border border-transparent hover:border-ink-700 hover:bg-ink-800/40 transition">
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_COLORS[r.clients?.status] || 'bg-slate-500'}`} />
-                    <div className="text-sm font-medium w-48 truncate">{r.clients?.name || 'Unknown'}</div>
-                    <div className="text-xs text-slate-400 w-36 shrink-0">{touchpointLabel(r.type)}</div>
-                    <div className="text-sm text-slate-300 flex-1 min-w-0 truncate">{r.content || '—'}</div>
-                    <div className="text-xs text-slate-500 tabular-nums shrink-0">
-                      {new Date(r.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                    </div>
+      {/* Grouped list */}
+      {grouped.length === 0 && <p className="text-xs text-slate-500">No activity found</p>}
+      {grouped.map(([day, entries]) => (
+        <div key={day} className="mb-4">
+          <p className="text-xs text-slate-500 font-medium sticky top-0 bg-ink-950 py-1 mb-1">{day}</p>
+          <div className="space-y-1">
+            {entries.map(t => {
+              const client = t.clients;
+              return (
+                <div key={t.id} className="flex items-start gap-3 px-3 py-2 rounded-lg hover:bg-ink-900/50 text-sm">
+                  <span className={'w-2 h-2 rounded-full mt-1.5 shrink-0 ' + (STATUS_DOT[client?.status] || 'bg-slate-500')}></span>
+                  <Link to={'/clients/' + (client?.id || '')} className="text-slate-200 hover:text-white shrink-0 w-32 truncate">
+                    {client?.name || 'Unknown'}
                   </Link>
-                ))}
-              </div>
-            </section>
-          ))}
+                  <span className="text-xs text-slate-500 shrink-0 w-24">{TYPE_LABELS[t.type] || t.type}</span>
+                  <span className="text-xs text-slate-400 flex-1 truncate">{t.content}</span>
+                  <span className="text-[10px] text-slate-600 shrink-0">{fmtDateTime(t.created_at)}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
-      )}
-    </div>
-  );
-}
-import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { api } from '../lib/api.js';
-import { fmtDate, touchpointLabel } from '../lib/format.js';
-
-const STATUS_COLORS = { green: 'bg-emerald-400', yellow: 'bg-yellow-400', red: 'bg-red-400', churned: 'bg-slate-500' };
-
-const TYPES = [
-  { value: 'all', label: 'All' },
-  { value: 'loom_sent', label: 'Looms' },
-  { value: 'call_offered', label: 'Calls offered' },
-  { value: 'call_completed', label: 'Calls done' },
-  { value: 'note', label: 'Notes' },
-  { value: 'status_change', label: 'Status' },
-  { value: 'system', label: 'System' }
-];
-
-export default function Activity() {
-  const [items, setItems] = useState(null);
-  const [type, setType] = useState('all');
-
-  useEffect(() => { api.activity(300).then(setItems); }, []);
-
-  const filtered = useMemo(() => {
-    if (!items) return null;
-    return type === 'all' ? items : items.filter(i => i.type === type);
-  }, [items, type]);
-
-  const grouped = useMemo(() => {
-    if (!filtered) return null;
-    const by = {};
-    for (const it of filtered) {
-      const day = new Date(it.created_at); day.setHours(0,0,0,0);
-      const key = day.toISOString();
-      if (!by[key]) by[key] = [];
-      by[key].push(it);
-    }
-    return Object.entries(by).sort((a, b) => b[0].localeCompare(a[0]));
-  }, [filtered]);
-
-  if (!items) return <div className="text-slate-400">Loading...</div>;
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold">Activity</h2>
-        <p className="text-sm text-slate-400 mt-1">
-          {items.length} touchpoints {'\u00B7'} last 300 across all clients
-        </p>
-      </div>
-
-      <div className="flex gap-2 flex-wrap">
-        {TYPES.map(t => (
-          <button key={t.value} onClick={() => setType(t.value)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              type === t.value
-                ? 'bg-ink-700 text-white'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-ink-800'
-            }`}>{t.label}</button>
-        ))}
-      </div>
-
-      {grouped && grouped.length === 0 ? (
-        <div className="card p-8 text-center text-slate-400">No activity matches this filter.</div>
-      ) : (
-        <div className="space-y-6">
-          {grouped && grouped.map(([dayKey, rows]) => (
-            <section key={dayKey}>
-              <div className="text-xs uppercase tracking-wide text-slate-500 mb-2 sticky top-14 bg-ink-950/80 backdrop-blur py-1">
-                {fmtDate(dayKey)} <span className="text-slate-600">{'\u00B7'} {rows.length}</span>
-              </div>
-              <div className="space-y-1.5">
-                {rows.map(r => (
-                  <Link
-                    key={r.id}
-                    to={`/clients/${r.client_id}`}
-                    className="w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg border border-transparent hover:border-ink-700 hover:bg-ink-800/40 transition">
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_COLORS[r.clients?.status] || 'bg-slate-500'}`} />
-                    <div className="text-sm font-medium w-48 truncate">{r.clients?.name || 'Unknown'}</div>
-                    <div className="text-xs text-slate-400 w-36 shrink-0">{touchpointLabel(r.type)}</div>
-                    <div className="text-sm text-slate-300 flex-1 min-w-0 truncate">{r.content || '\u2014'}</div>
-                    <div className="text-xs text-slate-500 tabular-nums shrink-0">
-                      {new Date(r.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-      )}
+      ))}
     </div>
   );
 }
