@@ -19,6 +19,7 @@ import { supabase } from './lib/supabase.js';
 import { startOnboardingPoller } from './jobs/onboardingSync.js';
 import { startCancellationPoller } from './jobs/cancellationSync.js';
 import { startSlackDigestJob } from './jobs/slackDigest.js';
+import { createClient } from './lib/clientOps.js';
 
 const app = express();
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN || true }));
@@ -117,8 +118,7 @@ app.post('/admin/sync-churn-sheet', async (req, res) => {
       };
 
       try {
-        const { error } = await supabase.from('clients').insert([insertPayload]);
-        if (error) throw error;
+        await createClient(insertPayload);
         created++;
       } catch (err) {
         console.error('[churn-sync] insert error:', err.message, { name });
