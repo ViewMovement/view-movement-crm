@@ -4,11 +4,21 @@ import morgan from 'morgan';
 import 'dotenv/config';
 
 import clientsRouter from './routes/clients.js';
+import activityRouter from './routes/activity.js';
+import syncRouter from './routes/sync.js';
+import opsRouter from './routes/ops.js';
+import exportRouter from './routes/export.js';
+import slackRouter from './routes/slack.js';
+import rolesRouter from './routes/roles.js';
+import reviewsRouter from './routes/reviews.js';
+import loomsRouter from './routes/looms.js';
+import goalsRouter from './routes/goals.js';
 import { requireAuth } from './lib/auth.js';
 import { readSheet, rowsToObjects } from './lib/sheets.js';
 import { supabase } from './lib/supabase.js';
 import { startOnboardingPoller } from './jobs/onboardingSync.js';
 import { startCancellationPoller } from './jobs/cancellationSync.js';
+import { startSlackDigestJob } from './jobs/slackDigest.js';
 
 const app = express();
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN || true }));
@@ -17,7 +27,21 @@ app.use(morgan('tiny'));
 
 app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
-app.use('/api/clients', requireAuth, clientsRouter);
+// One-shot seed endpoint guarded by SEED_TOKEN env var.
+app.post('/admin/seed-existing', async (req, res) => {
+  try {
+    const token = req.header('x-seed-token');
+    if (!process.env.SEED_TOKEN || token !== process.env.SEED_TOKEN) {
+      return res.status(401).json({ error: 'unauthorized' });
+    }
+    const { runSeed } = await import('./seed/seedExistingClients.js');
+    const result = await runSeed();
+    res.json({ ok: true, result });
+  } catch (e) {
+    console.error('[seed]', e);
+    res.status(500).json({ error: String(e && e.message || e) });
+  }
+});
 
 // Admin: preview a Google Sheet (first 3 rows)
 app.get('/admin/sheet-preview', async (req, res) => {
@@ -40,7 +64,7 @@ app.post('/admin/sync-churn-sheet', async (req, res) => {
     const rows = await readSheet(CHURN_SHEET_ID, CHURN_RANGE);
     const records = rowsToObjects(rows);
 
-    // Wipe existing clients, timers, touchpoints, sync_log
+    // Wipe existing data
     await supabase.from('timers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
     await supabase.from('touchpoints').delete().neq('id', '00000000-0000-0000-0000-000000000000');
     await supabase.from('loom_entries').delete().neq('id', '00000000-0000-0000-0000-000000000000');
@@ -51,7 +75,6 @@ app.post('/admin/sync-churn-sheet', async (req, res) => {
 
     let created = 0, skipped = 0;
     for (const row of records) {
-      // Try to find name from common column patterns
       const name = row['Client Name'] || row['Name'] || row['client_name'] || row['Company'] || row['company'] || '';
       if (!name || !name.trim()) { skipped++; continue; }
 
@@ -62,18 +85,17 @@ app.post('/admin/sync-churn-sheet', async (req, res) => {
       const billingDate = row['Billing Date'] || row['billing_date'] || row['Next Billing'] || null;
       const billingAmount = row['Monthly Rate'] || row['Billing Amount'] || row['billing_amount'] || row['MRR'] || null;
 
-      // Map status values
       let mappedStatus = 'green';
       if (['churned', 'cancelled', 'canceled'].includes(status)) mappedStatus = 'churned';
       else if (['red', 'at risk', 'at-risk'].includes(status)) mappedStatus = 'red';
       else if (['yellow', 'warning'].includes(status)) mappedStatus = 'yellow';
       else mappedStatus = 'green';
 
-      const payload = {
+      const insertPayload = {
         name: name.trim(),
-        email: email?.trim() || null,
-        company: company?.trim() || null,
-        package: pkg?.trim?.() || pkg || null,
+        email: email ? email.trim() : null,
+        company: company ? company.trim() : null,
+        package: pkg ? (typeof pkg === 'string' ? pkg.trim() : pkg) : null,
         status: mappedStatus,
         billing_date: billingDate || null,
         billing_amount: billingAmount ? parseFloat(String(billingAmount).replace(/[^0-9.]/g, '')) || null : null,
@@ -81,7 +103,7 @@ app.post('/admin/sync-churn-sheet', async (req, res) => {
       };
 
       try {
-        const { error } = await supabase.from('clients').insert([payload]);
+        const { error } = await supabase.from('clients').insert([insertPayload]);
         if (error) throw error;
         created++;
       } catch (err) {
@@ -96,57 +118,6 @@ app.post('/admin/sync-churn-sheet', async (req, res) => {
   }
 });
 
-const port = process.env.PORT || 8080;
-app.listen(port, () => {
-  console.log(`[crm-backend] listening on :${port}`);
-  if (process.env.ENABLE_POLLERS !== 'false') {
-    startOnboardingPoller();
-    startCancellationPoller();
-  }
-});
-import express from 'express';
-import cors from 'cors';
-import morgan from 'morgan';
-import 'dotenv/config';
-
-import clientsRouter from './routes/clients.js';
-import activityRouter from './routes/activity.js';
-import syncRouter from './routes/sync.js';
-import opsRouter from './routes/ops.js';
-import exportRouter from './routes/export.js';
-import slackRouter from './routes/slack.js';
-import rolesRouter from './routes/roles.js';
-import reviewsRouter from './routes/reviews.js';
-import loomsRouter from './routes/looms.js';
-import goalsRouter from './routes/goals.js';
-import { requireAuth } from './lib/auth.js';
-import { startOnboardingPoller } from './jobs/onboardingSync.js';
-import { startCancellationPoller } from './jobs/cancellationSync.js';
-import { startSlackDigestJob } from './jobs/slackDigest.js';
-
-const app = express();
-app.use(cors({ origin: process.env.FRONTEND_ORIGIN || true }));h
-app.use(express.json({ limit: '1mb' }));
-app.use(morgan('tiny'));
-
-app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
-
-// One-shot seed endpoint guarded by SEED_TOKEN env var.
-app.post('/admin/seed-existing', async (req, res) => {
-  try {
-    const token = req.header('x-seed-token');
-    if (!process.env.SEED_TOKEN || token !== process.env.SEED_TOKEN) {
-      return res.status(401).json({ error: 'unauthorized' });
-    }
-    const { runSeed } = await import('./seed/seedExistingClients.js');
-    const result = await runSeed();
-    res.json({ ok: true, result });
-  } catch (e) {
-    console.error('[seed]', e);
-    res.status(500).json({ error: String(e && e.message || e) });
-  }
-});
-
 app.use('/api/clients', requireAuth, clientsRouter);
 app.use('/api/activity', requireAuth, activityRouter);
 app.use('/api/sync', requireAuth, syncRouter);
@@ -156,6 +127,7 @@ app.use('/api/roles', requireAuth, rolesRouter);
 app.use('/api/reviews', requireAuth, reviewsRouter);
 app.use('/api/looms', requireAuth, loomsRouter);
 app.use('/api/goals', requireAuth, goalsRouter);
+
 // Admin-guarded Slack trigger (seed-token) must be outside requireAuth
 app.post('/admin/slack/run-now', async (req, res) => {
   const token = req.header('x-seed-token');
@@ -178,7 +150,7 @@ const port = process.env.PORT || 8080;
 app.listen(port, () => {
   console.log(`[crm-backend] listening on :${port}`);
   if (process.env.ENABLE_POLLERS !== 'false') {
-        // startOnboardingPoller(); // DISABLED — was pulling all historical rows
+    // startOnboardingPoller(); // DISABLED -- was pulling all historical rows
     startCancellationPoller();
     startSlackDigestJob();
   }
