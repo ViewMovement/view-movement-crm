@@ -14,7 +14,7 @@ export default function ClientProfile() {
 
   const load = useCallback(async () => setClient(await api.getClient(id)), [id]);
   useEffect(() => { load(); }, [load]);
-  if (!client) return <div className="text-slate-400">Loadingâ¦</div>;
+  if (!client) return <div className="text-slate-400">Loading...</div>;
 
   const loom = client.timers?.loom;
   const call = client.timers?.call_offer;
@@ -39,14 +39,14 @@ export default function ClientProfile() {
           <div>
             <h1 className="text-2xl font-semibold">{client.name}</h1>
             <div className="text-sm text-slate-400 mt-1">
-              {client.company || 'â'} Â· {client.email || 'no email on file'}
+              {client.company || '-'} {'\u00B7'} {client.email || 'no email on file'}
             </div>
           </div>
           <StatusBadge status={client.status} onChange={s => patch({ status: s })} />
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 text-sm">
-          <Field label="Package" value={client.package ? `${client.package} reels` : 'â'} editable onSave={v => patch({ package: v })} />
+          <Field label="Package" value={client.package ? `${client.package} reels` : '-'} editable onSave={v => patch({ package: v })} />
           <Field label="Billing date" value={client.billing_date ?? ''} placeholder="1 or 14" editable onSave={v => patch({ billing_date: v ? Number(v) : null })} />
           <Field label="Content source" value={client.content_source ?? ''} editable onSave={v => patch({ content_source: v })} />
           <Field label="MRR" value={client.mrr ?? ''} editable onSave={v => patch({ mrr: v ? Number(v) : null })} />
@@ -91,7 +91,7 @@ export default function ClientProfile() {
         <div className="flex justify-between mt-3">
           <button className="btn" onClick={() => doAction('call_completed')}>Log "Call Completed"</button>
           <button className="btn btn-primary" onClick={saveNote} disabled={saving || !note.trim()}>
-            {saving ? 'Savingâ¦' : 'Save note'}
+            {saving ? 'Saving...' : 'Save note'}
           </button>
         </div>
       </div>
@@ -129,7 +129,7 @@ function Field({ label, value, placeholder, editable, onSave }) {
           onChange={e => setV(e.target.value)}
           onBlur={() => v !== (value ?? '') && onSave?.(v)} />
       ) : (
-        <div className="text-slate-200">{value || 'â'}</div>
+        <div className="text-slate-200">{value || '-'}</div>
       )}
     </div>
   );
