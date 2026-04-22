@@ -1,5 +1,126 @@
 import express from 'express';
 import cors from 'cors';
+import { supabase } from './lib/supabase.js';
+import { requireAuth } from './lib/auth.js';
+import clientRoutes from './routes/clients.js';
+import { readSheet, rowsToObjects } from './lib/sheets.js';
+import { pollOnboarding } from './jobs/onboardingSync.js';
+import { pollCancellation } from './jobs/cancellationSync.js';
+
+const app = express();
+const PORT = process.env.PORT || 8080;
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || '*';
+
+app.use(cors({ origin: FRONTEND_ORIGIN, credentials: true }));
+app.use(express.json());
+
+// ââ Health check (no auth) ââââââââââââââââââââââââââââââââ
+let churnSeeded = false;
+app.get('/health', async (req, res) => {
+  try {
+    const { count } = await supabase.from('clients').select('*', { count: 'exact', head: true });
+
+    // One-time seed from Monthly Churn Sheet on first health check
+    if (!churnSeeded) {
+      churnSeeded = true;
+      seedFromChurnSheet().catch(err => console.error('[churn-seed]', err.message));
+    }
+
+    res.json({ ok: true, totalRows: count });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// ââ Activity endpoint (separate from client routes) âââââââ
+app.get('/api/activity', requireAuth, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 300;
+    const { data, error } = await supabase
+      .from('touchpoints')
+      .select('*, clients!inner(id, name, status)')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    res.json(data || []);
+  } catch (err) {
+    console.error('GET /api/activity', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ââ Client routes âââââââââââââââââââââââââââââââââââââââââ
+app.use('/api/clients', requireAuth, clientRoutes);
+
+// ââ Monthly Churn Sheet seed ââââââââââââââââââââââââââââââ
+async function seedFromChurnSheet() {
+  const SHEET_ID = '1yXAq3wSHOH8AUkbzwfOSMqjAOBSaK7G4xHNsGPJfpk';
+  const RANGE = 'Monthly!A1:Z';
+
+  console.log('[churn-seed] Starting one-time seed from Monthly Churn Sheet...');
+  const rows = await readSheet(SHEET_ID, RANGE);
+  const objects = rowsToObjects(rows);
+
+  let created = 0, skipped = 0;
+  for (const row of objects) {
+    const name = (row['x'] || row['Name'] || row['Client'] || '').trim();
+    if (!name) { skipped++; continue; }
+
+    // Check if already exists by name
+    const { data: existing } = await supabase
+      .from('clients')
+      .select('id')
+      .ilike('name', name)
+      .maybeSingle();
+    if (existing) { skipped++; continue; }
+
+    const statusRaw = (row['Status'] || '').trim().toLowerCase();
+    const status = ['green', 'yellow', 'red', 'churned'].includes(statusRaw) ? statusRaw : 'green';
+    const billingRaw = parseInt(row['Billed On'] || '');
+    const billingDate = [1, 14].includes(billingRaw) ? billingRaw : null;
+
+    try {
+      await supabase.from('clients').insert({
+        name,
+        stripe_status: (row['Stripe Subscription'] || '').trim() || null,
+        mrr: parseFloat(row['MRR']) || null,
+        billing_date: billingDate,
+        status,
+        risk_horizon: (row['Risk Horizon'] || '').trim() || null,
+        reason: (row['Reason'] || '').trim() || null,
+        save_plan_analysis: [(row['Save Plan'] || '').trim(), (row['Analysis'] || '').trim()].filter(Boolean).join(' | ') || null,
+        action_needed: (row['What they Need (Action)'] || '').trim() || null,
+        lifecycle_steps: {},
+      });
+      created++;
+    } catch (err) {
+      console.error(`[churn-seed] Error inserting ${name}:`, err.message);
+    }
+  }
+  console.log(`[churn-seed] Done: ${created} created, ${skipped} skipped`);
+}
+
+// ââ Start pollers âââââââââââââââââââââââââââââââââââââââââ
+const POLL_INTERVAL = 5 * 60 * 1000; // 5 minutes
+if (process.env.ENABLE_POLLERS !== 'false') {
+  console.log('[pollers] Starting onboarding + cancellation pollers (5 min interval)');
+  setInterval(pollOnboarding, POLL_INTERVAL);
+  setInterval(pollCancellation, POLL_INTERVAL);
+  // Run once on startup after a short delay
+  setTimeout(() => {
+    pollOnboarding();
+    pollCancellation();
+  }, 10_000);
+} else {
+  console.log('[pollers] Pollers disabled (ENABLE_POLLERS=false)');
+}
+
+// ââ Start server ââââââââââââââââââââââââââââââââââââââââââ
+app.listen(PORT, () => {
+  console.log(`View Movement CRM backend listening on port ${PORT}`);
+});
+import express from 'express';
+import cors from 'cors';
 import morgan from 'morgan';
 import 'dotenv/config';
 
