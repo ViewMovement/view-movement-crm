@@ -47,7 +47,7 @@ app.post('/admin/seed-existing', async (req, res) => {
 app.get('/admin/sheet-preview', async (req, res) => {
   try {
     const sheetId = req.query.id;
-    const range = req.query.range || 'Sheet1!A1:ZZ3';
+    const range = req.query.range || 'A1:ZZ3';
     if (!sheetId) return res.status(400).json({ error: 'id query param required' });
     const rows = await readSheet(sheetId, range);
     res.json({ rowCount: rows.length, headers: rows[0] || [], sample: rows.slice(1, 3) });
@@ -60,7 +60,7 @@ app.get('/admin/sheet-preview', async (req, res) => {
 app.post('/admin/sync-churn-sheet', async (req, res) => {
   try {
     const CHURN_SHEET_ID = process.env.CHURN_SHEET_ID || '1hlqWOrVuJFgjuEaCZSMYyXT2MxgB3oxRsNeSnoL5jJQ';
-    const CHURN_RANGE = process.env.CHURN_SHEET_RANGE || 'Sheet1!A1:ZZ';
+    const CHURN_RANGE = process.env.CHURN_SHEET_RANGE || 'A1:ZZ';
     const rows = await readSheet(CHURN_SHEET_ID, CHURN_RANGE);
     const records = rowsToObjects(rows);
 
@@ -75,21 +75,30 @@ app.post('/admin/sync-churn-sheet', async (req, res) => {
 
     let created = 0, skipped = 0;
     for (const row of records) {
-      const name = row['Client Name'] || row['Name'] || row['client_name'] || row['Company'] || row['company'] || '';
+      // Churn sheet uses "x" as the client name column
+      const name = row['x'] || row['Client Name'] || row['Name'] || row['client_name'] || row['Company'] || row['company'] || '';
       if (!name || !name.trim()) { skipped++; continue; }
 
       const email = row['Email'] || row['email'] || row['Client Email'] || null;
       const company = row['Company'] || row['company'] || row['Brand'] || row['brand'] || null;
       const pkg = row['Package'] || row['package'] || row['Plan'] || row['Reels'] || row['Amount of reels purchased'] || null;
-      const status = (row['Status'] || row['status'] || 'green').toLowerCase().trim();
-      const billingDate = row['Billing Date'] || row['billing_date'] || row['Next Billing'] || null;
-      const billingAmount = row['Monthly Rate'] || row['Billing Amount'] || row['billing_amount'] || row['MRR'] || null;
+      const billingDate = row['Billed On'] || row['Billing Date'] || row['billing_date'] || row['Next Billing'] || null;
+      const billingAmount = row['MRR'] || row['Monthly Rate'] || row['Billing Amount'] || row['billing_amount'] || null;
+      const stripeStatus = row['Stripe Subscription'] || '';
+      const rawStatus = row['Status'] || row['status'] || '';
 
+      // Map status from churn sheet format: "A. Healthy", "B. Monitor", "C. At Risk", "D. Lost (Churn Inevitable)"
       let mappedStatus = 'green';
-      if (['churned', 'cancelled', 'canceled'].includes(status)) mappedStatus = 'churned';
-      else if (['red', 'at risk', 'at-risk'].includes(status)) mappedStatus = 'red';
-      else if (['yellow', 'warning'].includes(status)) mappedStatus = 'yellow';
-      else mappedStatus = 'green';
+      const statusLower = rawStatus.toLowerCase().trim();
+      if (stripeStatus.toLowerCase() === 'cancelled' || statusLower.startsWith('d.') || statusLower.includes('lost') || statusLower.includes('churn')) {
+        mappedStatus = 'churned';
+      } else if (statusLower.startsWith('c.') || statusLower.includes('at risk') || statusLower.includes('at-risk') || statusLower.includes('red')) {
+        mappedStatus = 'red';
+      } else if (statusLower.startsWith('b.') || statusLower.includes('monitor') || statusLower.includes('warning') || statusLower.includes('yellow')) {
+        mappedStatus = 'yellow';
+      } else {
+        mappedStatus = 'green';
+      }
 
       const insertPayload = {
         name: name.trim(),
@@ -155,4 +164,3 @@ app.listen(port, () => {
     startSlackDigestJob();
   }
 });
-
