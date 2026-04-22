@@ -26,5 +26,10 @@ export const api = {
   resetTimer:        (id, t)         => request(`/api/clients/${id}/timers/${t}/reset`, { method: 'POST' }),
   dismissOnboard:    (id)            => request(`/api/clients/${id}/dismiss-onboarding`, { method: 'POST' }),
   toggleOnboardStep: (id, step, value) => request(`/api/clients/${id}/lifecycle-steps`, { method: 'PATCH', body: JSON.stringify({ step, value }) }),
-  toggleLifecycleStep: (id, step, value) => request(`/api/clients/${id}/lifecycle-steps`, { method: 'PATCH', body: JSON.stringify({ step, value }) })
+  toggleLifecycleStep: (id, step, value) => request(`/api/clients/${id}/lifecycle-steps`, { method: 'PATCH', body: JSON.stringify({ step, value }) }),
+  // Stubs for data.jsx calls (no backend routes yet)
+  triage:        () => Promise.resolve(null),
+  listFlags:     () => Promise.resolve({ flags: [] }),
+  listSavePlans: () => Promise.resolve([]),
+  syncStatus:    () => Promise.resolve(null)
 };
