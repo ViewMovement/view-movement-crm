@@ -1,40 +1,50 @@
 import { useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { Navigate } from 'react-router-dom';
+import { supabase } from '../lib/supabase.js';
 
 export default function Login() {
-  const { session, signIn } = useAuth();
+  const user = useAuth();
   const [email, setEmail] = useState('');
-  const [pw, setPw] = useState('');
-  const [err, setErr] = useState(null);
-  const [busy, setBusy] = useState(false);
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  if (session) return <Navigate to="/" replace />;
+  if (user) return <Navigate to="/today" replace />;
 
-  async function submit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
-    setBusy(true); setErr(null);
-    const { error } = await signIn(email, pw);
-    setBusy(false);
-    if (error) setErr(error.message);
+    setLoading(true);
+    setError('');
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) setError(error.message);
+    setLoading(false);
   }
 
   return (
-    <div className="min-h-screen grid place-items-center px-6">
-      <form onSubmit={submit} className="card p-8 w-full max-w-sm">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="h-8 w-8 rounded bg-emerald-500 grid place-items-center text-ink-950 font-bold">V</div>
-          <div>
-            <div className="font-semibold">View Movement</div>
-            <div className="text-xs text-slate-400">Client Success</div>
-          </div>
+    <div className="h-screen flex items-center justify-center bg-ink-950">
+      <form onSubmit={handleSubmit} className="bg-ink-900 border border-ink-700 rounded-xl p-8 w-full max-w-sm space-y-4">
+        <div className="text-center mb-4">
+          <h1 className="text-xl font-bold text-white">View Movement</h1>
+          <p className="text-sm text-slate-400">Client Success CRM</p>
         </div>
-        <label className="block text-xs text-slate-400 mb-1">Email</label>
-        <input className="input mb-3" type="email" value={email} onChange={e => setEmail(e.target.value)} required />
-        <label className="block text-xs text-slate-400 mb-1">Password</label>
-        <input className="input mb-5" type="password" value={pw} onChange={e => setPw(e.target.value)} required />
-        {err && <div className="text-red-400 text-sm mb-3">{err}</div>}
-        <button className="btn btn-primary w-full" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+        {error && <p className="text-red-400 text-sm text-center">{error}</p>}
+        <input
+          type="email" placeholder="Email" value={email}
+          onChange={e => setEmail(e.target.value)}
+          className="w-full bg-ink-800 border border-ink-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+        />
+        <input
+          type="password" placeholder="Password" value={password}
+          onChange={e => setPassword(e.target.value)}
+          className="w-full bg-ink-800 border border-ink-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+        />
+        <button
+          type="submit" disabled={loading}
+          className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium rounded-lg py-2 text-sm transition-colors"
+        >
+          {loading ? 'Signing in...' : 'Sign In'}
+        </button>
       </form>
     </div>
   );
