@@ -2,33 +2,33 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { supabase } from './supabase.js';
 
-const Ctx = createContext(null);
+const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [session, setSession] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(undefined); // undefined = loading
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setLoading(false); });
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
-    return () => sub.subscription.unsubscribe();
+    supabase.auth.getUser().then(({ data: { user } }) => setUser(user || null));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null);
+    });
+    return () => subscription.unsubscribe();
   }, []);
 
-  const value = {
-    session, loading,
-    user: session?.user || null,
-    signIn: (email, password) => supabase.auth.signInWithPassword({ email, password }),
-    signOut: () => supabase.auth.signOut()
-  };
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  if (user === undefined) {
+    return <div className="h-screen flex items-center justify-center text-slate-400">Loading...</div>;
+  }
+
+  return <AuthContext.Provider value={user}>{children}</AuthContext.Provider>;
 }
 
-export function useAuth() { return useContext(Ctx); }
+export function useAuth() {
+  return useContext(AuthContext);
+}
 
 export function RequireAuth({ children }) {
-  const { session, loading } = useAuth();
-  const loc = useLocation();
-  if (loading) return <div className="p-8 text-slate-400">Loading…</div>;
-  if (!session) return <Navigate to="/login" state={{ from: loc }} replace />;
+  const user = useAuth();
+  const location = useLocation();
+  if (!user) return <Navigate to="/login" state={{ from: location }} replace />;
   return children;
 }
