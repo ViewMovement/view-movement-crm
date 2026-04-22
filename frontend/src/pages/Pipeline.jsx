@@ -35,7 +35,7 @@ export default function Pipeline() {
     groups.complete = [];
 
     for (const client of clients) {
-      // Skip churned clients â they're not in the active pipeline
+      // Skip churned clients - they're not in the active pipeline
       if (client.status === 'churned') continue;
       const stage = getClientStage(client.lifecycle_steps);
       if (groups[stage]) groups[stage].push(client);
@@ -54,7 +54,7 @@ export default function Pipeline() {
           <h2 className="text-lg font-semibold">Client Pipeline</h2>
           <p className="text-sm text-slate-400">
             {clients.length} total clients across {PIPELINE_SECTIONS.length} stages
-            {churnedCount > 0 && <> Â· {churnedCount} churned (hidden)</>}
+            {churnedCount > 0 && <> {'\u00B7'} {churnedCount} churned (hidden)</>}
           </p>
         </div>
       </div>
@@ -82,7 +82,7 @@ export default function Pipeline() {
                       <span className={`pill ${colors.pill}`}>{sectionClients.length}</span>
                     </div>
                     <div className="text-xs text-slate-400 mt-0.5">
-                      Steps {stepOffset + 1}â{stepOffset + section.steps.length} Â· {section.description}
+                      Steps {stepOffset + 1}{'\u2013'}{stepOffset + section.steps.length} {'\u00B7'} {section.description}
                     </div>
                   </div>
                 </div>
@@ -172,9 +172,9 @@ function PipelineCard({ client, section, colors, onChange }) {
       <div className="flex-1 min-w-0">
         <div className="font-medium truncate">{client.name}</div>
         <div className="text-xs text-slate-400 truncate">
-          {client.package ? `${client.package} reels` : 'â'}
-          {client.company && <> Â· {client.company}</>}
-          {' '}Â· {countCompleted(client.lifecycle_steps)}/{TOTAL_STEPS} total steps
+          {client.package ? `${client.package} reels` : '-'}
+          {client.company && <> {'\u00B7'} {client.company}</>}
+          {' '}{'\u00B7'} {countCompleted(client.lifecycle_steps)}/{TOTAL_STEPS} total steps
         </div>
         {/* Section step progress bar */}
         <div className="mt-1.5 flex gap-1">
