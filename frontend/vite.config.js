@@ -7,6 +7,10 @@ export default defineConfig({
   preview: {
     port: parseInt(process.env.PORT) || 4173,
     host: '0.0.0.0',
-    allowedHosts: ['fantastic-creativity-production.up.railway.app'],
+    allowedHosts: [
+      'fantastic-creativity-production.up.railway.app',
+      'view-movement-crm-production.up.railway.app',
+    ],
   },
 });
+
