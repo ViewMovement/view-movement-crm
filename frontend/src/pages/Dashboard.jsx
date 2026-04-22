@@ -2,20 +2,19 @@ import { useState, useEffect } from 'react';
 
 const CHECKLIST = [
   { id: 'discord', label: 'Check Discord notifications', description: 'Review all Discord channels for client messages and team updates' },
-  { id: 'slack_notifs', label: 'Check Slack notifications & DMs', description: 'Clear your Slack inbox \u2014 reply to DMs, respond to mentions' },
+  { id: 'slack_notifs', label: 'Check Slack notifications & DMs', description: 'Clear your Slack inbox — reply to DMs, respond to mentions' },
   { id: 'slack_sweep', label: 'Slack client channel sweep', description: 'Scan each client channel for unanswered questions or updates' },
-  { id: 'master_sheet', label: 'Check master sheet for quotas', description: 'Ensure all clients are on track for their reel quotas \u2014 communicate with the team if not' },
-  { id: 'monitoring', label: 'Ongoing monitoring', description: 'Keep Slack and Discord open \u2014 respond to incoming client messages and team requests as they come in, troubleshoot issues' },
+  { id: 'master_sheet', label: 'Check master sheet for quotas', description: 'Ensure all clients are on track for their reel quotas — communicate with the team if not' },
+  { id: 'monitoring', label: 'Ongoing monitoring', description: 'Keep Slack and Discord open — respond to incoming client messages and team requests as they come in, troubleshoot issues' },
 ];
 
 export default function Dashboard() {
+  const todayKey = new Date().toISOString().slice(0, 10);
   const [checked, setChecked] = useState(() => {
     try {
-      const today = new Date().toDateString();
-      const saved = localStorage.getItem('vm_checklist_date');
-      if (saved === today) {
-        return JSON.parse(localStorage.getItem('vm_checklist') || '{}');
-      }
+      const saved = localStorage.getItem('vm_checklist');
+      const parsed = JSON.parse(saved);
+      if (parsed && parsed._date === todayKey) return parsed;
     } catch { /* ignore */ }
     return {};
   });
@@ -64,41 +63,6 @@ export default function Dashboard() {
           </button>
         ))}
       </div>
-    </div>
-  );
-}
-import { useEffect, useState, useCallback } from 'react';
-import { api } from '../lib/api.js';
-import TodaysActions from '../components/TodaysActions.jsx';
-
-export default function Dashboard() {
-  const [today, setToday] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    const t = await api.todayActions();
-    setToday(t); setLoading(false);
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  if (loading) return <div className="text-slate-400">Loading...</div>;
-
-  return (
-    <div className="space-y-8">
-      <section>
-        <div className="flex items-end justify-between mb-3">
-          <div>
-            <h2 className="text-lg font-semibold">Today's Actions</h2>
-            <p className="text-sm text-slate-400">
-              {today.length
-                ? `${today.length} item${today.length === 1 ? '' : 's'} need attention, prioritized by status and urgency.`
-                : 'You are clear for today.'}
-            </p>
-          </div>
-        </div>
-        <TodaysActions items={today} onChange={load} />
-      </section>
     </div>
   );
 }
