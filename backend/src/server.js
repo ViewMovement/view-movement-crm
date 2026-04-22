@@ -26,6 +26,7 @@ app.use(express.json({ limit: '1mb' }));
 app.use(morgan('tiny'));
 
 app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
+
 // One-shot seed endpoint guarded by SEED_TOKEN env var.
 app.post('/admin/seed-existing', async (req, res) => {
   try {
@@ -61,6 +62,7 @@ function parseBillingDate(raw) {
   const num = parseInt(String(raw).replace(/[^0-9]/g, ''), 10);
   return (!isNaN(num) && num >= 1 && num <= 31) ? num : null;
 }
+
 // Admin: sync from churn sheet - wipe + reimport
 app.post('/admin/sync-churn-sheet', async (req, res) => {
   try {
@@ -163,4 +165,3 @@ app.listen(port, () => {
     startSlackDigestJob();
   }
 });
-
