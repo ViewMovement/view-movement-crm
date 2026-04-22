@@ -1,251 +1,263 @@
 import { Router } from 'express';
 import { supabase } from '../lib/supabase.js';
 import {
-  createClient, logTouchpoint, resetTimer, recalcTimersForStatusChange, refreshOverdueFlags,
-  createExpectationsLoomTimer, clearExpectationsLoomTimer
+  createNewClient, logTouchpoint, resetTimer, recalcTimersForStatusChange,
+  refreshOverdueFlags, createExpectationsLoomTimer, clearExpectationsLoomTimer,
+  initTimers,
 } from '../lib/clientOps.js';
-import { daysUntil, daysOverdue, daysUntilBilling, HEADS_UP_DAYS, ONBOARDING_REMINDER_DAYS, addDays } from '../lib/cadence.js';
+import { HEADS_UP_DAYS, ONBOARDING_REMINDER_DAYS } from '../lib/cadence.js';
 
 const router = Router();
 
-// GET /api/clients - full list + last touchpoint + both timers
+// GET /api/clients
 router.get('/', async (req, res) => {
   try {
     await refreshOverdueFlags();
     const { data: clients, error } = await supabase
-      .from('clients').select('*').order('created_at', { ascending: false });
+      .from('clients')
+      .select('*')
+      .order('created_at', { ascending: false });
     if (error) throw error;
 
     const ids = clients.map(c => c.id);
-    const [{ data: timers }, { data: touchpoints }] = await Promise.all([
-      supabase.from('timers').select('*').in('client_id', ids),
-      supabase.from('touchpoints').select('*').in('client_id', ids).order('created_at', { ascending: false })
-    ]);
+    const { data: timers } = await supabase
+      .from('timers')
+      .select('*')
+      .in('client_id', ids);
 
-    const byClient = {};
-    for (const c of clients) byClient[c.id] = { ...c, timers: {}, last_touchpoint: null };
-    for (const t of timers || []) byClient[t.client_id].timers[t.timer_type] = t;
-    for (const tp of touchpoints || []) {
-      if (!byClient[tp.client_id].last_touchpoint) byClient[tp.client_id].last_touchpoint = tp;
-    }
+    const timerMap = {};
+    (timers || []).forEach(t => {
+      if (!timerMap[t.client_id]) timerMap[t.client_id] = {};
+      timerMap[t.client_id][t.timer_type] = t;
+    });
 
-    const enriched = Object.values(byClient).map(c => ({
-      ...c,
-      days_until_billing: daysUntilBilling(c.billing_date),
-      onboarding_reminder_active:
-        !c.onboarding_reminder_dismissed &&
-        !c.onboarding_call_completed &&
-        new Date() >= addDays(c.created_at, ONBOARDING_REMINDER_DAYS)
-    }));
+    const enriched = clients.map(c => ({ ...c, timers: timerMap[c.id] || {} }));
     res.json(enriched);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (err) {
+    console.error('GET /api/clients', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// GET /api/clients/today - Today's Actions (overdue or due-today, grouped by urgency)
+// GET /api/clients/today
 router.get('/today', async (req, res) => {
   try {
     await refreshOverdueFlags();
     const now = new Date();
-    const cutoff = addDays(now, HEADS_UP_DAYS).toISOString();
+    const lookahead = new Date();
+    lookahead.setDate(lookahead.getDate() + HEADS_UP_DAYS);
 
-    const { data: timers, error } = await supabase
-      .from('timers').select('*, clients(*)').lte('next_due_at', cutoff);
-    if (error) throw error;
+    const { data: overdue } = await supabase
+      .from('timers')
+      .select('*, clients!inner(id, name, status, company)')
+      .eq('is_overdue', true)
+      .neq('clients.status', 'churned');
 
-    const items = (timers || []).map(t => {
-      const overdue = new Date(t.next_due_at) <= now;
-      return {
-        client_id: t.client_id,
-        client: t.clients,
-        timer_type: t.timer_type,
-        next_due_at: t.next_due_at,
-        is_overdue: overdue,
-        days_overdue: overdue ? daysOverdue(t.next_due_at) : 0,
-        days_until_due: overdue ? 0 : daysUntil(t.next_due_at),
-        label: t.timer_type === 'loom' ? 'Loom'
-             : t.timer_type === 'expectations_loom' ? 'Expectations Loom (72h)'
-             : 'Call Offer'
-      };
-    });
+    const { data: dueSoon } = await supabase
+      .from('timers')
+      .select('*, clients!inner(id, name, status, company)')
+      .gt('next_due_at', now.toISOString())
+      .lte('next_due_at', lookahead.toISOString())
+      .neq('clients.status', 'churned');
 
-    // Also surface onboarding check-in reminders (7d after created, one-time).
-    const { data: clientsNeedingOnboarding } = await supabase
-      .from('clients').select('*')
-      .eq('onboarding_reminder_dismissed', false)
+    const reminderCutoff = new Date();
+    reminderCutoff.setDate(reminderCutoff.getDate() - ONBOARDING_REMINDER_DAYS);
+    const { data: onboardingReminders } = await supabase
+      .from('clients')
+      .select('id, name, company, created_at')
+      .eq('onboarding_flag', true)
       .eq('onboarding_call_completed', false)
-      .lte('created_at', addDays(now, -ONBOARDING_REMINDER_DAYS).toISOString());
+      .eq('onboarding_reminder_dismissed', false)
+      .lte('created_at', reminderCutoff.toISOString());
 
-    for (const c of clientsNeedingOnboarding || []) {
-      items.push({
-        client_id: c.id, client: c,
-        timer_type: 'onboarding_checkin', is_overdue: true,
-        days_overdue: daysOverdue(addDays(c.created_at, ONBOARDING_REMINDER_DAYS)),
-        label: 'Onboarding Check-in'
-      });
-    }
-
-    // Sort: churned > red > yellow > green, then most overdue first.
-    const order = { churned: 0, red: 1, yellow: 2, green: 3 };
-    items.sort((a, b) => {
-      const so = (order[a.client.status] ?? 9) - (order[b.client.status] ?? 9);
-      if (so !== 0) return so;
-      return (b.days_overdue || 0) - (a.days_overdue || 0);
+    res.json({
+      overdue: overdue || [],
+      dueSoon: dueSoon || [],
+      onboardingReminders: onboardingReminders || [],
     });
-
-    res.json(items);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (err) {
+    console.error('GET /api/clients/today', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// GET /api/clients/:id - full profile + touchpoints + timers
+// GET /api/clients/:id
 router.get('/:id', async (req, res) => {
   try {
-    const [{ data: client, error }, { data: timers }, { data: touchpoints }] = await Promise.all([
-      supabase.from('clients').select('*').eq('id', req.params.id).single(),
-      supabase.from('timers').select('*').eq('client_id', req.params.id),
-      supabase.from('touchpoints').select('*').eq('client_id', req.params.id).order('created_at', { ascending: false })
-    ]);
+    const { data: client, error } = await supabase
+      .from('clients')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
     if (error) throw error;
-    res.json({
-      ...client,
-      days_until_billing: daysUntilBilling(client.billing_date),
-      timers: Object.fromEntries((timers || []).map(t => [t.timer_type, t])),
-      touchpoints: touchpoints || []
-    });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    if (!client) return res.status(404).json({ error: 'Not found' });
+
+    const { data: timers } = await supabase
+      .from('timers')
+      .select('*')
+      .eq('client_id', client.id);
+
+    const timerObj = {};
+    (timers || []).forEach(t => { timerObj[t.timer_type] = t; });
+
+    const { data: touchpoints } = await supabase
+      .from('touchpoints')
+      .select('*')
+      .eq('client_id', client.id)
+      .order('created_at', { ascending: false })
+      .limit(200);
+
+    res.json({ ...client, timers: timerObj, touchpoints: touchpoints || [] });
+  } catch (err) {
+    console.error('GET /api/clients/:id', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// POST /api/clients - manual create (rare; mainly used by sync job)
+// POST /api/clients
 router.post('/', async (req, res) => {
-  try { res.status(201).json(await createClient(req.body)); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+  try {
+    const client = await createNewClient(req.body);
+    await initTimers(client.id, client.status || 'green');
+    res.status(201).json(client);
+  } catch (err) {
+    console.error('POST /api/clients', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// PATCH /api/clients/:id - update any field(s); handles status change side effects
+// PATCH /api/clients/:id
 router.patch('/:id', async (req, res) => {
   try {
-    const updates = { ...req.body };
-    const { data: before, error: bErr } = await supabase
-      .from('clients').select('status').eq('id', req.params.id).single();
-    if (bErr) throw bErr;
+    const id = req.params.id;
+    const updates = { ...req.body, updated_at: new Date().toISOString() };
 
-    const { data: client, error } = await supabase
-      .from('clients').update(updates).eq('id', req.params.id).select().single();
-    if (error) throw error;
-
-    if (updates.status && updates.status !== before.status) {
-      await recalcTimersForStatusChange(client.id, updates.status);
-      await logTouchpoint(client.id, 'status_change', `${before.status} -> ${updates.status}`);
+    if (updates.status) {
+      const { data: current } = await supabase
+        .from('clients')
+        .select('status')
+        .eq('id', id)
+        .single();
+      if (current && current.status !== updates.status) {
+        await logTouchpoint(id, 'status_change', `Status changed from ${current.status} to ${updates.status}`);
+        await recalcTimersForStatusChange(id, updates.status);
+      }
     }
-    res.json(client);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+
+    const { data, error } = await supabase
+      .from('clients')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) throw error;
+    res.json(data);
+  } catch (err) {
+    console.error('PATCH /api/clients/:id', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// POST /api/clients/:id/action - "Loom Sent" | "Call Offered" | "Call Completed" | "Expectations Loom Sent"
+// POST /api/clients/:id/action
 router.post('/:id/action', async (req, res) => {
   try {
-    const { type, content } = req.body;
-    if (!['loom_sent', 'call_offered', 'call_completed', 'expectations_loom_sent'].includes(type)) {
-      return res.status(400).json({ error: 'Invalid action type' });
-    }
-    await logTouchpoint(req.params.id, type, content || null);
+    const id = req.params.id;
+    const { action, content } = req.body;
 
-    if (type === 'loom_sent') await resetTimer(req.params.id, 'loom');
-    else if (type === 'call_offered') await resetTimer(req.params.id, 'call_offer');
-    else if (type === 'expectations_loom_sent') {
-      // Clear the 72-hour timer â the retention specialist delivered
-      await clearExpectationsLoomTimer(req.params.id);
-    }
+    const { data: client } = await supabase
+      .from('clients')
+      .select('status')
+      .eq('id', id)
+      .single();
+    const status = client?.status || 'green';
 
-    if (type === 'call_completed') {
-      await supabase.from('clients').update({
-        onboarding_call_completed: true,
-        onboarding_call_date: new Date().toISOString(),
-        onboarding_reminder_dismissed: true
-      }).eq('id', req.params.id).eq('onboarding_call_completed', false);
-
-      // Start the 72-hour expectations loom timer for the Retention Specialist
-      await createExpectationsLoomTimer(req.params.id);
-      await logTouchpoint(req.params.id, 'system', '72-hour Expectations Loom timer started');
+    switch (action) {
+      case 'loom_sent':
+        await logTouchpoint(id, 'loom_sent', content || 'Loom sent');
+        await resetTimer(id, 'loom', status);
+        break;
+      case 'call_offered':
+        await logTouchpoint(id, 'call_offered', content || 'Call offered');
+        await resetTimer(id, 'call_offer', status);
+        break;
+      case 'call_completed':
+        await logTouchpoint(id, 'call_completed', content || 'Call completed');
+        await supabase
+          .from('clients')
+          .update({ onboarding_call_completed: true, onboarding_call_date: new Date().toISOString(), updated_at: new Date().toISOString() })
+          .eq('id', id);
+        await createExpectationsLoomTimer(id);
+        break;
+      case 'expectations_loom_sent':
+        await logTouchpoint(id, 'expectations_loom_sent', content || 'Expectations Loom sent');
+        await clearExpectationsLoomTimer(id);
+        break;
+      default:
+        return res.status(400).json({ error: 'Unknown action' });
     }
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (err) {
+    console.error('POST /api/clients/:id/action', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // POST /api/clients/:id/note
 router.post('/:id/note', async (req, res) => {
   try {
-    if (!req.body?.content?.trim()) return res.status(400).json({ error: 'Note content required' });
-    await logTouchpoint(req.params.id, 'note', req.body.content.trim());
+    await logTouchpoint(req.params.id, 'note', req.body.content);
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (err) {
+    console.error('POST /api/clients/:id/note', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// POST /api/clients/:id/timers/:timerType/reset - manual timer reset
+// POST /api/clients/:id/timers/:timerType/reset
 router.post('/:id/timers/:timerType/reset', async (req, res) => {
   try {
-    await resetTimer(req.params.id, req.params.timerType);
-    await logTouchpoint(req.params.id, 'system', `Manual reset of ${req.params.timerType} timer`);
+    const { data: client } = await supabase
+      .from('clients')
+      .select('status')
+      .eq('id', req.params.id)
+      .single();
+    await resetTimer(req.params.id, req.params.timerType, client?.status || 'green');
     res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (err) {
+    console.error('POST timer reset', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// POST /api/clients/:id/dismiss-onboarding
-router.post('/:id/dismiss-onboarding', async (req, res) => {
-  try {
-    await supabase.from('clients')
-      .update({ onboarding_reminder_dismissed: true })
-      .eq('id', req.params.id);
-    res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// PATCH /api/clients/:id/lifecycle-steps - toggle any of the 22 lifecycle steps
-const VALID_STEPS = [
-  // Onboarding (1-6)
-  'form_sent','form_filled','success_definition','call_completed','discord_built','content_source_ready',
-  // First Week (7-10)
-  'work_started','first_deliverable','first_revision','client_feedback',
-  // Retention (11-14)
-  'first_loom','first_call_offer','thirty_day_checkin','cadence_established',
-  // Handoff (15-17)
-  'ops_retention_brief','retention_intro','retention_first_contact',
-  // Retention Handoff (18-20)
-  'goals_review','expectations_loom','retention_plan_active',
-  // 12-Month Contract (21-22)
-  'renewal_discussion','contract_renewed'
-];
+// PATCH /api/clients/:id/lifecycle-steps
 router.patch('/:id/lifecycle-steps', async (req, res) => {
   try {
     const { step, value } = req.body;
-    if (!VALID_STEPS.includes(step)) {
-      return res.status(400).json({ error: `Invalid step: ${step}` });
+    const { data: client } = await supabase
+      .from('clients')
+      .select('lifecycle_steps')
+      .eq('id', req.params.id)
+      .single();
+
+    const steps = client?.lifecycle_steps || {};
+    if (value) {
+      steps[step] = true;
+    } else {
+      delete steps[step];
     }
 
-    // Fetch current steps
-    const { data: client, error: fetchErr } = await supabase
-      .from('clients').select('lifecycle_steps').eq('id', req.params.id).single();
-    if (fetchErr) throw fetchErr;
-
-    const steps = client.lifecycle_steps || {};
-
-    // Update the step
-    steps[step] = !!value;
-
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('clients')
-      .update({ lifecycle_steps: steps })
-      .eq('id', req.params.id);
+      .update({ lifecycle_steps: steps, updated_at: new Date().toISOString() })
+      .eq('id', req.params.id)
+      .select()
+      .single();
     if (error) throw error;
-
-    res.json({ ok: true, lifecycle_steps: steps });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// Keep backward compatibility â old endpoint redirects to new
-router.patch('/:id/onboarding-steps', async (req, res) => {
-  // Forward to lifecycle-steps handler
-  req.url = `/${req.params.id}/lifecycle-steps`;
-  router.handle(req, res);
+    res.json(data);
+  } catch (err) {
+    console.error('PATCH lifecycle-steps', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;
