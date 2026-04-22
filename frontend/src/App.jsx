@@ -1,61 +1,47 @@
-import { useEffect, useState } from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
-import Sidebar from './components/Sidebar.jsx';
-import CommandPalette from './components/CommandPalette.jsx';
-import SyncIndicator from './components/SyncIndicator.jsx';
-import ShortcutOverlay from './components/ShortcutOverlay.jsx';
+import { Link, NavLink as RRNavLink, Outlet } from 'react-router-dom';
+import { useAuth } from './lib/auth.jsx';
+
+function NavTab({ to, children }) {
+  return (
+    <RRNavLink to={to} end
+      className={({ isActive }) =>
+        `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+          isActive
+            ? 'bg-ink-700 text-white'
+            : 'text-slate-400 hover:text-slate-200 hover:bg-ink-800'
+        }`
+      }>
+      {children}
+    </RRNavLink>
+  );
+}
 
 export default function App() {
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const nav = useNavigate();
-
-  useEffect(() => {
-    function onKey(e) {
-      const tag = (e.target.tagName || '').toLowerCase();
-      const typing = tag === 'input' || tag === 'textarea' || e.target.isContentEditable;
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault(); setPaletteOpen(p => !p); return;
-      }
-      if (typing) return;
-      if (e.key === '/') { e.preventDefault(); setPaletteOpen(true); return; }
-      if (e.key.toLowerCase() === 'h' && !e.metaKey && !e.ctrlKey) nav('/');
-      if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey) nav('/board');
-      if (e.key.toLowerCase() === 'c' && !e.metaKey && !e.ctrlKey) nav('/clients');
-      if (e.key.toLowerCase() === 'p' && !e.metaKey && !e.ctrlKey) nav('/pipeline');
-      if (e.key.toLowerCase() === 'b' && !e.metaKey && !e.ctrlKey) nav('/billing');
-      if (e.key.toLowerCase() === 'a' && !e.metaKey && !e.ctrlKey) nav('/activity');
-      if (e.key.toLowerCase() === 's' && !e.metaKey && !e.ctrlKey) nav('/save-queue');
-      if (e.key.toLowerCase() === 'f' && !e.metaKey && !e.ctrlKey) nav('/flags');
-      if (e.key.toLowerCase() === 'g' && !e.metaKey && !e.ctrlKey) nav('/digest');
-      if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey) nav('/retention');
-      if (e.key.toLowerCase() === 'r' && !e.metaKey && !e.ctrlKey) nav('/reports');
-      if (e.key === ',' && !e.metaKey && !e.ctrlKey) nav('/settings');
-      if (e.key === '?' && !e.metaKey && !e.ctrlKey) { e.preventDefault(); setShortcutsOpen(true); }
-      if (e.key === 'Escape') { setShortcutsOpen(false); }
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [nav]);
-
+  const { user, signOut } = useAuth();
   return (
-    <div className="min-h-screen flex">
-      <Sidebar onOpenPalette={() => setPaletteOpen(true)} />
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="border-b border-ink-800 bg-ink-950/60 backdrop-blur sticky top-0 z-20">
-          <div className="h-14 px-6 flex items-center justify-between gap-4">
-            <div className="md:hidden font-semibold text-sm">View Movement</div>
-            <div className="ml-auto flex items-center gap-4">
-              <SyncIndicator />
-            </div>
+    <div className="min-h-screen flex flex-col">
+      <header className="border-b border-ink-800 bg-ink-900/80 backdrop-blur sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-6">
+            <Link to="/" className="flex items-center gap-3">
+              <div className="h-7 w-7 rounded bg-emerald-500/90 grid place-items-center text-ink-950 font-bold">V</div>
+              <div className="font-semibold hidden sm:block">View Movement</div>
+            </Link>
+            <nav className="flex items-center gap-1">
+              <NavTab to="/">Today</NavTab>
+              <NavTab to="/pipeline">Pipeline</NavTab>
+              <NavTab to="/clients">Clients</NavTab>
+            </nav>
           </div>
-        </header>
-        <main className="flex-1 px-6 py-8 max-w-[1400px] w-full mx-auto">
-          <Outlet />
-        </main>
-      </div>
-      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
-      {shortcutsOpen && <ShortcutOverlay onClose={() => setShortcutsOpen(false)} />}
+          <div className="flex items-center gap-3 text-sm text-slate-400">
+            <span className="hidden sm:inline">{user?.email}</span>
+            <button className="btn btn-subtle" onClick={signOut}>Sign out</button>
+          </div>
+        </div>
+      </header>
+      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
+        <Outlet />
+      </main>
     </div>
   );
 }
