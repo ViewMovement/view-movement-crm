@@ -1,47 +1,38 @@
-import { Link, NavLink as RRNavLink, Outlet } from 'react-router-dom';
-import { useAuth } from './lib/auth.jsx';
+import { NavLink, Outlet } from 'react-router-dom';
 
-function NavTab({ to, children }) {
-  return (
-    <RRNavLink to={to} end
-      className={({ isActive }) =>
-        `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-          isActive
-            ? 'bg-ink-700 text-white'
-            : 'text-slate-400 hover:text-slate-200 hover:bg-ink-800'
-        }`
-      }>
-      {children}
-    </RRNavLink>
-  );
-}
+const NAV = [
+  { to: '/today', label: 'Today' },
+  { to: '/pipeline', label: 'Pipeline' },
+  { to: '/billing', label: 'Billing' },
+  { to: '/activity', label: 'Activity' },
+];
 
 export default function App() {
-  const { user, signOut } = useAuth();
   return (
-    <div className="min-h-screen flex flex-col">
-      <header className="border-b border-ink-800 bg-ink-900/80 backdrop-blur sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <Link to="/" className="flex items-center gap-3">
-              <div className="h-7 w-7 rounded bg-emerald-500/90 grid place-items-center text-ink-950 font-bold">V</div>
-              <div className="font-semibold hidden sm:block">View Movement</div>
-            </Link>
-            <nav className="flex items-center gap-1">
-              <NavTab to="/">Today</NavTab>
-              <NavTab to="/pipeline">Pipeline</NavTab>
-              <NavTab to="/clients">Clients</NavTab>
-              <NavTab to="/billing">Billing</NavTab>
-              <NavTab to="/activity">Activity</NavTab>
-            </nav>
-          </div>
-          <div className="flex items-center gap-3 text-sm text-slate-400">
-            <span className="hidden sm:inline">{user?.email}</span>
-            <button className="btn btn-subtle" onClick={signOut}>Sign out</button>
-          </div>
+    <div className="flex h-screen">
+      {/* Sidebar */}
+      <aside className="w-56 bg-ink-900 border-r border-ink-700 flex flex-col py-6 px-4 shrink-0">
+        <div className="mb-8">
+          <h1 className="text-lg font-bold text-white">View Movement</h1>
+          <p className="text-xs text-slate-400 mt-0.5">Client Success</p>
         </div>
-      </header>
-      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
+        <nav className="flex flex-col gap-1">
+          {NAV.map(n => (
+            <NavLink
+              key={n.to}
+              to={n.to}
+              className={({ isActive }) =>
+                'px-3 py-2 rounded-lg text-sm font-medium transition-colors ' +
+                (isActive ? 'bg-ink-700 text-white' : 'text-slate-400 hover:text-white hover:bg-ink-800')
+              }
+            >
+              {n.label}
+            </NavLink>
+          ))}
+        </nav>
+      </aside>
+      {/* Main content */}
+      <main className="flex-1 overflow-y-auto bg-ink-950 p-6">
         <Outlet />
       </main>
     </div>
