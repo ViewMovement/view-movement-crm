@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { supabase } from '../lib/supabase.js';
 import {
-  createClient, logTouchpoint, resetTimer, recalcTimersForStatusChange, refreshOverdueFlags
+  createClient, logTouchpoint, resetTimer, recalcTimersForStatusChange, refreshOverdueFlags,
+  createExpectationsLoomTimer, clearExpectationsLoomTimer
 } from '../lib/clientOps.js';
-import { daysUntil, daysOverdue, daysUntilBilling, HEADS_UP_DAYS, ONBOARDING_REMINDER_DAYS, addDays, computeNextDue } from '../lib/cadence.js';
-import { generateReviewsForClient } from './reviews.js';
+import { daysUntil, daysOverdue, daysUntilBilling, HEADS_UP_DAYS, ONBOARDING_REMINDER_DAYS, addDays } from '../lib/cadence.js';
 
 const router = Router();
 
@@ -17,65 +17,26 @@ router.get('/', async (req, res) => {
     if (error) throw error;
 
     const ids = clients.map(c => c.id);
-    const [{ data: timers }, { data: touchpoints }, { data: openFlags }, { data: dueReviews }] = await Promise.all([
+    const [{ data: timers }, { data: touchpoints }] = await Promise.all([
       supabase.from('timers').select('*').in('client_id', ids),
-      supabase.from('touchpoints').select('*').in('client_id', ids).order('created_at', { ascending: false }),
-      supabase.from('situation_flags').select('id, client_id, type').is('resolved_at', null),
-      supabase.from('client_reviews').select('id, client_id, review_type, due_at, status')
-        .in('status', ['pending', 'upcoming', 'overdue'])
-        .lte('due_at', new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10))
+      supabase.from('touchpoints').select('*').in('client_id', ids).order('created_at', { ascending: false })
     ]);
 
     const byClient = {};
-    for (const c of clients) byClient[c.id] = { ...c, timers: {}, last_touchpoint: null, open_flags: 0, reviews_due: 0 };
+    for (const c of clients) byClient[c.id] = { ...c, timers: {}, last_touchpoint: null };
     for (const t of timers || []) byClient[t.client_id].timers[t.timer_type] = t;
     for (const tp of touchpoints || []) {
       if (!byClient[tp.client_id].last_touchpoint) byClient[tp.client_id].last_touchpoint = tp;
     }
-    for (const f of openFlags || []) {
-      if (byClient[f.client_id]) byClient[f.client_id].open_flags++;
-    }
-    for (const r of dueReviews || []) {
-      if (byClient[r.client_id]) byClient[r.client_id].reviews_due++;
-    }
 
-    const now = new Date();
-    const enriched = Object.values(byClient).map(c => {
-      // Compute service cycle stage
-      const loom = c.timers.loom;
-      const call = c.timers.call_offer;
-      const loomOverdue = loom && (loom.is_overdue || new Date(loom.next_due_at) <= now);
-      const callOverdue = call && (call.is_overdue || new Date(call.next_due_at) <= now);
-      const loomDueSoon = loom && !loomOverdue && daysUntil(loom.next_due_at) <= 3;
-      const callDueSoon = call && !callOverdue && daysUntil(call.next_due_at) <= 3;
-
-      let cycle_stage;
-      if (c.status === 'churned') {
-        cycle_stage = 'churned';
-      } else if (c.cohort === 'new' || c.onboarding_flag) {
-        cycle_stage = 'onboarding';
-      } else if (c.open_flags > 0) {
-        cycle_stage = 'flagged';
-      } else if (loomOverdue || loomDueSoon) {
-        cycle_stage = 'needs_loom';
-      } else if (callOverdue || callDueSoon) {
-        cycle_stage = 'needs_call';
-      } else if (c.reviews_due > 0) {
-        cycle_stage = 'review_due';
-      } else {
-        cycle_stage = 'all_current';
-      }
-
-      return {
-        ...c,
-        cycle_stage,
-        days_until_billing: daysUntilBilling(c.billing_date),
-        onboarding_reminder_active:
-          !c.onboarding_reminder_dismissed &&
-          !c.onboarding_call_completed &&
-          now >= addDays(c.created_at, ONBOARDING_REMINDER_DAYS)
-      };
-    });
+    const enriched = Object.values(byClient).map(c => ({
+      ...c,
+      days_until_billing: daysUntilBilling(c.billing_date),
+      onboarding_reminder_active:
+        !c.onboarding_reminder_dismissed &&
+        !c.onboarding_call_completed &&
+        new Date() >= addDays(c.created_at, ONBOARDING_REMINDER_DAYS)
+    }));
     res.json(enriched);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -101,7 +62,9 @@ router.get('/today', async (req, res) => {
         is_overdue: overdue,
         days_overdue: overdue ? daysOverdue(t.next_due_at) : 0,
         days_until_due: overdue ? 0 : daysUntil(t.next_due_at),
-        label: t.timer_type === 'loom' ? 'Loom' : 'Call Offer'
+        label: t.timer_type === 'loom' ? 'Loom'
+             : t.timer_type === 'expectations_loom' ? 'Expectations Loom (72h)'
+             : 'Call Offer'
       };
     });
 
@@ -153,14 +116,8 @@ router.get('/:id', async (req, res) => {
 
 // POST /api/clients - manual create (rare; mainly used by sync job)
 router.post('/', async (req, res) => {
-  try {
-    const client = await createClient(req.body);
-    // Auto-generate Day 30/60/80 reviews + first QBR
-    generateReviewsForClient(client.id, client.service_start_date || client.created_at).catch(e =>
-      console.error('[reviews] auto-gen failed for', client.id, e.message)
-    );
-    res.status(201).json(client);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  try { res.status(201).json(await createClient(req.body)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // PATCH /api/clients/:id - update any field(s); handles status change side effects
@@ -183,16 +140,21 @@ router.patch('/:id', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/clients/:id/action - "Loom Sent" | "Call Offered" | "Call Completed"
+// POST /api/clients/:id/action - "Loom Sent" | "Call Offered" | "Call Completed" | "Expectations Loom Sent"
 router.post('/:id/action', async (req, res) => {
   try {
-    const { type, content } = req.body; // loom_sent | call_offered | call_completed
-    if (!['loom_sent', 'call_offered', 'call_completed'].includes(type)) {
+    const { type, content } = req.body;
+    if (!['loom_sent', 'call_offered', 'call_completed', 'expectations_loom_sent'].includes(type)) {
       return res.status(400).json({ error: 'Invalid action type' });
     }
     await logTouchpoint(req.params.id, type, content || null);
+
     if (type === 'loom_sent') await resetTimer(req.params.id, 'loom');
-    else await resetTimer(req.params.id, 'call_offer');
+    else if (type === 'call_offered') await resetTimer(req.params.id, 'call_offer');
+    else if (type === 'expectations_loom_sent') {
+      // Clear the 72-hour timer â the retention specialist delivered
+      await clearExpectationsLoomTimer(req.params.id);
+    }
 
     if (type === 'call_completed') {
       await supabase.from('clients').update({
@@ -200,6 +162,10 @@ router.post('/:id/action', async (req, res) => {
         onboarding_call_date: new Date().toISOString(),
         onboarding_reminder_dismissed: true
       }).eq('id', req.params.id).eq('onboarding_call_completed', false);
+
+      // Start the 72-hour expectations loom timer for the Retention Specialist
+      await createExpectationsLoomTimer(req.params.id);
+      await logTouchpoint(req.params.id, 'system', '72-hour Expectations Loom timer started');
     }
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -233,123 +199,53 @@ router.post('/:id/dismiss-onboarding', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/clients/:id/timers/:timerType/snooze  body: { days: number }
-router.post('/:id/timers/:timerType/snooze', async (req, res) => {
+// PATCH /api/clients/:id/lifecycle-steps - toggle any of the 22 lifecycle steps
+const VALID_STEPS = [
+  // Onboarding (1-6)
+  'form_sent','form_filled','success_definition','call_completed','discord_built','content_source_ready',
+  // First Week (7-10)
+  'work_started','first_deliverable','first_revision','client_feedback',
+  // Retention (11-14)
+  'first_loom','first_call_offer','thirty_day_checkin','cadence_established',
+  // Handoff (15-17)
+  'ops_retention_brief','retention_intro','retention_first_contact',
+  // Retention Handoff (18-20)
+  'goals_review','expectations_loom','retention_plan_active',
+  // 12-Month Contract (21-22)
+  'renewal_discussion','contract_renewed'
+];
+router.patch('/:id/lifecycle-steps', async (req, res) => {
   try {
-    const days = Math.max(1, Math.min(30, Number(req.body?.days) || 1));
-    const { data: timer, error: tErr } = await supabase
-      .from('timers').select('*').eq('client_id', req.params.id)
-      .eq('timer_type', req.params.timerType).single();
-    if (tErr) throw tErr;
-    const newDue = addDays(new Date(), days).toISOString();
-    await supabase.from('timers').update({ next_due_at: newDue, is_overdue: false }).eq('id', timer.id);
-    await logTouchpoint(req.params.id, 'system', `Snoozed ${req.params.timerType} ${days}d`);
-    res.json({ ok: true, next_due_at: newDue });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// POST /api/clients/bulk-action  body: { ids: [...], type: 'loom_sent'|'call_offered'|'call_completed' }
-router.post('/bulk-action', async (req, res) => {
-  try {
-    const { ids, type } = req.body || {};
-    if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids required' });
-    if (!['loom_sent', 'call_offered', 'call_completed'].includes(type)) return res.status(400).json({ error: 'bad type' });
-    const results = [];
-    for (const id of ids) {
-      try {
-        await logTouchpoint(id, type, null);
-        await resetTimer(id, type === 'loom_sent' ? 'loom' : 'call_offer');
-        results.push({ id, ok: true });
-      } catch (e) { results.push({ id, ok: false, error: e.message }); }
+    const { step, value } = req.body;
+    if (!VALID_STEPS.includes(step)) {
+      return res.status(400).json({ error: `Invalid step: ${step}` });
     }
-    res.json({ results });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
 
-// POST /api/clients/:id/undo-last - undo the most recent touchpoint (within last 5 min)
-router.post('/:id/undo-last', async (req, res) => {
-  try {
-    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-    const { data: tp, error } = await supabase
-      .from('touchpoints').select('*').eq('client_id', req.params.id)
-      .gte('created_at', fiveMinAgo)
-      .order('created_at', { ascending: false }).limit(1).maybeSingle();
+    // Fetch current steps
+    const { data: client, error: fetchErr } = await supabase
+      .from('clients').select('lifecycle_steps').eq('id', req.params.id).single();
+    if (fetchErr) throw fetchErr;
+
+    const steps = client.lifecycle_steps || {};
+
+    // Update the step
+    steps[step] = !!value;
+
+    const { error } = await supabase
+      .from('clients')
+      .update({ lifecycle_steps: steps })
+      .eq('id', req.params.id);
     if (error) throw error;
-    if (!tp) return res.status(404).json({ error: 'Nothing to undo' });
 
-    // Delete the touchpoint
-    await supabase.from('touchpoints').delete().eq('id', tp.id);
-
-    // If it was a timer-moving action, roll the timer back to the prior touchpoint for that action type.
-    const timerType = tp.type === 'loom_sent' ? 'loom'
-      : (tp.type === 'call_offered' || tp.type === 'call_completed') ? 'call_offer' : null;
-
-    if (timerType) {
-      // find previous touchpoint of same type to use as last_reset_at
-      const prev = await supabase.from('touchpoints').select('*')
-        .eq('client_id', req.params.id).eq('type', tp.type)
-        .order('created_at', { ascending: false }).limit(1).maybeSingle();
-      const { data: clientRow } = await supabase.from('clients').select('status,created_at').eq('id', req.params.id).single();
-      const lastReset = prev.data?.created_at || clientRow.created_at;
-      const nextDue = computeNextDue(lastReset, clientRow.status).toISOString();
-      await supabase.from('timers').update({
-        last_reset_at: lastReset, next_due_at: nextDue,
-        is_overdue: new Date(nextDue) <= new Date()
-      }).eq('client_id', req.params.id).eq('timer_type', timerType);
-    }
-    res.json({ ok: true, undone: tp });
+    res.json({ ok: true, lifecycle_steps: steps });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// GET /api/clients/digest/weekly - counts for the past 7 days + stale clients
-router.get('/digest/weekly', async (_req, res) => {
-  try {
-    const sevenAgo = addDays(new Date(), -7).toISOString();
-    const thirtyAgo = addDays(new Date(), -30).toISOString();
-    const twentyOneAgo = addDays(new Date(), -21).toISOString();
-
-    const [{ data: tps }, { data: allClients }] = await Promise.all([
-      supabase.from('touchpoints').select('*').gte('created_at', sevenAgo),
-      supabase.from('clients').select('*')
-    ]);
-
-    const counts = {};
-    for (const t of tps || []) counts[t.type] = (counts[t.type] || 0) + 1;
-
-    const churnedThisWeek = (allClients || []).filter(c => c.status === 'churned' && c.updated_at >= sevenAgo);
-    const onboardedThisWeek = (allClients || []).filter(c => c.created_at >= sevenAgo);
-
-    // status movement: fetch status_change touchpoints from past week
-    const statusChanges = (tps || []).filter(t => t.type === 'status_change');
-
-    // stale clients: no touchpoint in 21+ days AND not churned
-    const clientIds = (allClients || []).map(c => c.id);
-    const { data: recentTps } = await supabase
-      .from('touchpoints').select('client_id,created_at')
-      .in('client_id', clientIds).gte('created_at', twentyOneAgo);
-    const touchedRecently = new Set((recentTps || []).map(t => t.client_id));
-    const stale = (allClients || []).filter(c => c.status !== 'churned' && !touchedRecently.has(c.id));
-
-    // by-status totals for the roster
-    const byStatus = { green: 0, yellow: 0, red: 0, churned: 0 };
-    for (const c of allClients || []) byStatus[c.status] = (byStatus[c.status] || 0) + 1;
-
-    res.json({
-      week_start: sevenAgo,
-      counts: {
-        loom_sent: counts.loom_sent || 0,
-        call_offered: counts.call_offered || 0,
-        call_completed: counts.call_completed || 0,
-        notes: counts.note || 0
-      },
-      churned_this_week: churnedThisWeek.length,
-      onboarded_this_week: onboardedThisWeek.length,
-      status_changes: statusChanges.length,
-      stale_clients: stale.slice(0, 50),
-      by_status: byStatus,
-      total_clients: (allClients || []).length
-    });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+// Keep backward compatibility â old endpoint redirects to new
+router.patch('/:id/onboarding-steps', async (req, res) => {
+  // Forward to lifecycle-steps handler
+  req.url = `/${req.params.id}/lifecycle-steps`;
+  router.handle(req, res);
 });
 
 export default router;
