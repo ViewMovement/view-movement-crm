@@ -18,6 +18,7 @@ import { supabase } from './lib/supabase.js';
 import { startCancellationPoller } from './jobs/cancellationSync.js';
 import { startSlackDigestJob } from './jobs/slackDigest.js';
 import { createClient } from './lib/clientOps.js';
+import { syncClientsFromSheet, scheduleDailySync } from './jobs/clientSheetSync.js';
 
 const app = express();
 
@@ -154,6 +155,21 @@ app.post('/admin/slack/run-now', async (req, res) => {
   }
 });
 
+// Admin: trigger manual client sheet sync (guarded by SEED_TOKEN)
+app.post('/admin/sync-clients', async (req, res) => {
+    const token = req.headers['x-seed-token'];
+    if (!process.env.SEED_TOKEN || token !== process.env.SEED_TOKEN) {
+          return res.status(401).json({ error: 'unauthorized' });
+    }
+    try {
+          const result = await syncClientsFromSheet();
+          res.json({ ok: true, ...result });
+    } catch (e) {
+          console.error('[admin/sync-clients]', e);
+          res.status(500).json({ error: String(e && e.message || e) });
+    }
+});
+
 app.use('/api/slack', requireAuth, slackRouter);
 
 const port = process.env.PORT || 8080;
@@ -164,4 +180,11 @@ app.listen(port, () => {
     startCancellationPoller();
     startSlackDigestJob();
   }
+    // Schedule daily client sheet sync at 1 AM UTC
+    scheduleDailySync();
+    // Run initial client sync on startup
+    setTimeout(() => {
+          syncClientsFromSheet().catch(err => console.error('[client-sync]', err.message));
+    }, 5000);
 });
+h
