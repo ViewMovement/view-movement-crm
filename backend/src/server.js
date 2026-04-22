@@ -83,11 +83,10 @@ app.post('/admin/sync-churn-sheet', async (req, res) => {
       const company = row['Company'] || row['company'] || row['Brand'] || row['brand'] || null;
       const pkg = row['Package'] || row['package'] || row['Plan'] || row['Reels'] || row['Amount of reels purchased'] || null;
       const billingDate = row['Billed On'] || row['Billing Date'] || row['billing_date'] || row['Next Billing'] || null;
-      const billingAmount = row['MRR'] || row['Monthly Rate'] || row['Billing Amount'] || row['billing_amount'] || null;
       const stripeStatus = row['Stripe Subscription'] || '';
       const rawStatus = row['Status'] || row['status'] || '';
 
-      // Map status from churn sheet format: "A. Healthy", "B. Monitor", "C. At Risk", "D. Lost (Churn Inevitable)"
+      // Map status from churn sheet format: "A. Healthy", "B. Monitor", "C. At Risk", "D. Lost"
       let mappedStatus = 'green';
       const statusLower = rawStatus.toLowerCase().trim();
       if (stripeStatus.toLowerCase() === 'cancelled' || statusLower.startsWith('d.') || statusLower.includes('lost') || statusLower.includes('churn')) {
@@ -107,7 +106,6 @@ app.post('/admin/sync-churn-sheet', async (req, res) => {
         package: pkg ? (typeof pkg === 'string' ? pkg.trim() : pkg) : null,
         status: mappedStatus,
         billing_date: billingDate || null,
-        billing_amount: billingAmount ? parseFloat(String(billingAmount).replace(/[^0-9.]/g, '')) || null : null,
         onboarding_flag: false
       };
 
