@@ -16,20 +16,15 @@ async function request(path, opts = {}) {
 }
 
 export const api = {
-  myRole:            ()              => request('/api/my-role'),
-  listClients:       ()              => request('/api/clients'),
-  todayActions:      ()              => request('/api/clients/today'),
-  getClient:         (id)            => request(`/api/clients/${id}`),
-  updateClient:      (id, patch)     => request(`/api/clients/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
-  action:            (id, type)      => request(`/api/clients/${id}/action`, { method: 'POST', body: JSON.stringify({ type }) }),
-  addNote:           (id, content)   => request(`/api/clients/${id}/note`, { method: 'POST', body: JSON.stringify({ content }) }),
-  resetTimer:        (id, t)         => request(`/api/clients/${id}/timers/${t}/reset`, { method: 'POST' }),
-  dismissOnboard:    (id)            => request(`/api/clients/${id}/dismiss-onboarding`, { method: 'POST' }),
+  listClients:     ()              => request('/api/clients'),
+  todayActions:    ()              => request('/api/clients/today'),
+  getClient:       (id)            => request(`/api/clients/${id}`),
+  updateClient:    (id, patch)     => request(`/api/clients/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  action:          (id, type)      => request(`/api/clients/${id}/action`, { method: 'POST', body: JSON.stringify({ type }) }),
+  addNote:         (id, content)   => request(`/api/clients/${id}/note`, { method: 'POST', body: JSON.stringify({ content }) }),
+  resetTimer:      (id, t)         => request(`/api/clients/${id}/timers/${t}/reset`, { method: 'POST' }),
+  dismissOnboard:  (id)            => request(`/api/clients/${id}/dismiss-onboarding`, { method: 'POST' }),
   toggleOnboardStep: (id, step, value) => request(`/api/clients/${id}/lifecycle-steps`, { method: 'PATCH', body: JSON.stringify({ step, value }) }),
   toggleLifecycleStep: (id, step, value) => request(`/api/clients/${id}/lifecycle-steps`, { method: 'PATCH', body: JSON.stringify({ step, value }) }),
-  // Stubs for data.jsx calls (no backend routes yet)
-  triage:        () => Promise.resolve(null),
-  listFlags:     () => Promise.resolve({ flags: [] }),
-  listSavePlans: () => Promise.resolve([]),
-  syncStatus:    () => Promise.resolve(null)
+  activity:        (limit = 200)   => request(`/api/activity?limit=${limit}`),
 };
