@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../lib/api.js';
-import { Empty, SectionHeader, Skeleton, StatusDot, TabIntro } from '../components/primitives.jsx';
-import ClientDetailDrawer from '../components/ClientDetailDrawer.jsx';
 import { fmtDate, touchpointLabel } from '../lib/format.js';
+
+const STATUS_COLORS = { green: 'bg-emerald-400', yellow: 'bg-yellow-400', red: 'bg-red-400', churned: 'bg-slate-500' };
 
 const TYPES = [
   { value: 'all', label: 'All' },
@@ -17,7 +18,6 @@ const TYPES = [
 export default function Activity() {
   const [items, setItems] = useState(null);
   const [type, setType] = useState('all');
-  const [openId, setOpenId] = useState(null);
 
   useEffect(() => { api.activity(300).then(setItems); }, []);
 
@@ -38,56 +38,57 @@ export default function Activity() {
     return Object.entries(by).sort((a, b) => b[0].localeCompare(a[0]));
   }, [filtered]);
 
-  if (!items) return <Skeleton rows={10} className="h-10 w-full" />;
+  if (!items) return <div className="text-slate-400">Loading...</div>;
 
   return (
-    <>
-      <TabIntro id="activity" title="What is this?">
-        The audit log. Every touchpoint across all clients in reverse-chronological order, grouped by day — Looms sent, calls offered, calls done, notes, status changes, system events. Filter by type up top. Use this to answer "when did I last touch X?" or "what happened yesterday?"
-      </TabIntro>
-      <SectionHeader
-        title="Activity"
-        subtitle={`${items.length} touchpoints · last 300 across all clients`}
-      />
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold">Activity</h2>
+        <p className="text-sm text-slate-400 mt-1">
+          {items.length} touchpoints {'\u00B7'} last 300 across all clients
+        </p>
+      </div>
 
-      <div className="flex gap-2 mb-6 flex-wrap">
+      <div className="flex gap-2 flex-wrap">
         {TYPES.map(t => (
           <button key={t.value} onClick={() => setType(t.value)}
-            className={`chip ${type === t.value ? 'chip-active' : ''}`}>{t.label}</button>
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              type === t.value
+                ? 'bg-ink-700 text-white'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-ink-800'
+            }`}>{t.label}</button>
         ))}
       </div>
 
-      {grouped.length === 0 ? (
-        <Empty icon="◉" title="No activity matches this filter." />
+      {grouped && grouped.length === 0 ? (
+        <div className="card p-8 text-center text-slate-400">No activity matches this filter.</div>
       ) : (
         <div className="space-y-6">
-          {grouped.map(([dayKey, rows]) => (
+          {grouped && grouped.map(([dayKey, rows]) => (
             <section key={dayKey}>
               <div className="text-xs uppercase tracking-wide text-slate-500 mb-2 sticky top-14 bg-ink-950/80 backdrop-blur py-1">
-                {fmtDate(dayKey)} <span className="text-slate-600">· {rows.length}</span>
+                {fmtDate(dayKey)} <span className="text-slate-600">{'\u00B7'} {rows.length}</span>
               </div>
               <div className="space-y-1.5">
                 {rows.map(r => (
-                  <button
+                  <Link
                     key={r.id}
-                    onClick={() => setOpenId(r.client_id)}
+                    to={`/clients/${r.client_id}`}
                     className="w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg border border-transparent hover:border-ink-700 hover:bg-ink-800/40 transition">
-                    <StatusDot status={r.clients?.status} label={false} />
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${STATUS_COLORS[r.clients?.status] || 'bg-slate-500'}`} />
                     <div className="text-sm font-medium w-48 truncate">{r.clients?.name || 'Unknown'}</div>
                     <div className="text-xs text-slate-400 w-36 shrink-0">{touchpointLabel(r.type)}</div>
-                    <div className="text-sm text-slate-300 flex-1 min-w-0 truncate">{r.content || '—'}</div>
+                    <div className="text-sm text-slate-300 flex-1 min-w-0 truncate">{r.content || '\u2014'}</div>
                     <div className="text-xs text-slate-500 tabular-nums shrink-0">
                       {new Date(r.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                     </div>
-                  </button>
+                  </Link>
                 ))}
               </div>
             </section>
           ))}
         </div>
       )}
-
-      {openId && <ClientDetailDrawer clientId={openId} onClose={() => setOpenId(null)} />}
-    </>
+    </div>
   );
 }
