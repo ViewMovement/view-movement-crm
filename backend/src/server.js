@@ -56,6 +56,13 @@ app.get('/admin/sheet-preview', async (req, res) => {
   }
 });
 
+// Parse billing date: "1st" -> 1, "14th" -> 14, "Unknown" -> null
+function parseBillingDate(raw) {
+  if (!raw) return null;
+  const num = parseInt(String(raw).replace(/[^0-9]/g, ''), 10);
+  return (!isNaN(num) && num >= 1 && num <= 31) ? num : null;
+}
+
 // Admin: sync from churn sheet - wipe + reimport
 app.post('/admin/sync-churn-sheet', async (req, res) => {
   try {
@@ -105,7 +112,7 @@ app.post('/admin/sync-churn-sheet', async (req, res) => {
         company: company ? company.trim() : null,
         package: pkg ? (typeof pkg === 'string' ? pkg.trim() : pkg) : null,
         status: mappedStatus,
-        billing_date: billingDate || null,
+        billing_date: parseBillingDate(billingDate),
         onboarding_flag: false
       };
 
