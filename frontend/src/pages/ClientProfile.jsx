@@ -1,420 +1,272 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../lib/api.js';
+import { fmtDate, fmtRelative, fmtDateTime } from '../lib/format.js';
 import StatusBadge from '../components/StatusBadge.jsx';
 import LifecycleChecklist from '../components/LifecycleChecklist.jsx';
-import { fmtDate, fmtRelative, touchpointLabel } from '../lib/format.js';
-import { getClientStage, PIPELINE_SECTIONS, countCompleted, TOTAL_STEPS } from '../lib/lifecycle.js';
 
-const RISK_HORIZON_OPTIONS = [
-  { value: '', label: '—' },
-  { value: '0-30 days', label: '0–30 days', color: 'bg-red-500' },
-  { value: '31-60 days', label: '31–60 days', color: 'bg-orange-400' },
-  { value: '61-90 days', label: '61–90 days', color: 'bg-yellow-400' },
-  { value: '90+ days', label: '90+ days', color: 'bg-lime-400' },
-  { value: 'Unknown', label: 'Unknown', color: 'bg-slate-400' },
-];
-
-const BILLING_DATE_OPTIONS = [
-  { value: '', label: '—' },
-  { value: '1', label: '1st' },
-  { value: '14', label: '14th' },
-];
+const RISK_OPTIONS = ['0-30 days', '31-60 days', '61-90 days', '90+ days', 'Unknown'];
 
 export default function ClientProfile() {
   const { id } = useParams();
   const [client, setClient] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const load = useCallback(async () => setClient(await api.getClient(id)), [id]);
+  const load = useCallback(() => {
+    api.getClient(id).then(setClient).catch(console.error).finally(() => setLoading(false));
+  }, [id]);
+
   useEffect(() => { load(); }, [load]);
-  if (!client) return <div className="text-slate-400">Loading...</div>;
 
-  const loom = client.timers?.loom;
-  const call = client.timers?.call_offer;
-  const expLoom = client.timers?.expectations_loom;
+  async function changeStatus(newStatus) {
+    await api.updateClient(id, { status: newStatus });
+    load();
+  }
 
-  async function patch(fields) { await api.updateClient(id, fields); load(); }
-  async function doAction(type) { await api.action(id, type); load(); }
-  async function saveNote() {
+  async function updateField(field, value) {
+    await api.updateClient(id, { [field]: value });
+    load();
+  }
+
+  async function doAction(action) {
+    setSaving(true);
+    await api.postAction(id, action);
+    load();
+    setSaving(false);
+  }
+
+  async function addNote() {
     if (!note.trim()) return;
     setSaving(true);
-    await api.addNote(id, note.trim());
-    setNote(''); setSaving(false); load();
+    await api.postNote(id, note);
+    setNote('');
+    load();
+    setSaving(false);
   }
-  async function resetTimer(t) { await api.resetTimer(id, t); load(); }
+
+  async function doResetTimer(timerType) {
+    await api.resetTimer(id, timerType);
+    load();
+  }
+
+  if (loading) return <p className="text-slate-400">Loading...</p>;
+  if (!client) return <p className="text-red-400">Client not found</p>;
+
+  const timers = client.timers || {};
+  const touchpoints = client.touchpoints || [];
 
   return (
-    <div className="space-y-6">
-      <Link to="/pipeline" className="text-sm text-slate-400 hover:text-slate-200">&#8592; Back to pipeline</Link>
+    <div className="max-w-3xl mx-auto">
+      {/* Back link */}
+      <Link to="/pipeline" className="text-sm text-slate-400 hover:text-white mb-4 inline-block">&#8592; Pipeline</Link>
 
-      <div className="card p-6">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-semibold">{client.name}</h1>
-            <div className="text-sm text-slate-400 mt-1">
-              {client.company || '-'} &middot; {client.email || 'no email on file'}
-            </div>
-          </div>
-          <StatusBadge status={client.status} onChange={s => patch({ status: s })} />
+      {/* Header */}
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-white">{client.name}</h2>
+          {client.company && <p className="text-sm text-slate-400">{client.company}</p>}
+          {client.email && <p className="text-xs text-slate-500">{client.email}</p>}
         </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 text-sm">
-          <Field label="Package" value={client.package ? `${client.package} reels` : '-'} editable onSave={v => patch({ package: v })} />
-          <SelectField
-            label="Billing date"
-            value={client.billing_date ? String(client.billing_date) : ''}
-            options={BILLING_DATE_OPTIONS}
-            onChange={v => patch({ billing_date: v ? Number(v) : null })}
-          />
-          <Field label="Content source" value={client.content_source ?? ''} editable onSave={v => patch({ content_source: v })} />
-          <Field label="MRR" value={client.mrr ?? ''} editable onSave={v => patch({ mrr: v ? Number(v) : null })} />
-          <Field label="Stripe status" value={client.stripe_status ?? ''} editable onSave={v => patch({ stripe_status: v })} />
-          <SelectField
-            label="Risk horizon"
-            value={client.risk_horizon ?? ''}
-            options={RISK_HORIZON_OPTIONS}
-            onChange={v => patch({ risk_horizon: v || null })}
-          />
-          <Field label="Date added" value={fmtDate(client.created_at)} />
-          <Field label="Onboarding call" value={client.onboarding_call_completed ? fmtDate(client.onboarding_call_date) : 'Not completed'} />
-        </div>
-
-        {(client.reason || client.save_plan_analysis || client.action_needed) && (
-          <div className="grid md:grid-cols-3 gap-3 mt-4 text-sm">
-            {client.reason && <Info label="Reason" value={client.reason} />}
-            {client.save_plan_analysis && <Info label="Save plan" value={client.save_plan_analysis} />}
-            {client.action_needed && <Info label="Action needed" value={client.action_needed} />}
-          </div>
-        )}
+        <StatusBadge status={client.status} onChangeStatus={changeStatus} />
       </div>
 
-      <LifecycleChecklist clientId={id} steps={client.lifecycle_steps} onChange={load} />
-
-      <div className="grid md:grid-cols-2 gap-4">
-        <TimerCard label="Loom timer" timer={loom} onReset={() => resetTimer('loom')} onAction={() => doAction('loom_sent')} actionLabel="Loom Sent" />
-        <TimerCard label="Call Offer timer" timer={call} onReset={() => resetTimer('call_offer')} onAction={() => doAction('call_offered')} actionLabel="Call Offered" />
+      {/* Fields grid */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+        <FieldCard label="Package" value={client.package ? client.package + ' reels' : '\u2014'} />
+        <div className="bg-ink-900 border border-ink-700 rounded-lg p-3">
+          <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">Billing Date</p>
+          <select
+            value={client.billing_date || ''}
+            onChange={e => updateField('billing_date', e.target.value ? parseInt(e.target.value) : null)}
+            className="bg-ink-800 border border-ink-700 rounded px-2 py-1 text-sm text-white w-full"
+          >
+            <option value="">Not set</option>
+            <option value="1">1st</option>
+            <option value="14">14th</option>
+          </select>
+        </div>
+        <FieldCard label="Content Source" value={client.content_source || '\u2014'} />
+        <FieldCard label="MRR" value={client.mrr ? '$' + Number(client.mrr).toLocaleString() : '\u2014'} />
+        <FieldCard label="Stripe Status" value={client.stripe_status || '\u2014'} />
+        <div className="bg-ink-900 border border-ink-700 rounded-lg p-3">
+          <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">Risk Horizon</p>
+          <select
+            value={client.risk_horizon || ''}
+            onChange={e => updateField('risk_horizon', e.target.value || null)}
+            className="bg-ink-800 border border-ink-700 rounded px-2 py-1 text-sm text-white w-full"
+          >
+            <option value="">Unknown</option>
+            {RISK_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </div>
+        <FieldCard label="Date Added" value={fmtDate(client.created_at)} />
+        <FieldCard label="Onboarding Call" value={client.onboarding_call_completed ? 'Completed ' + fmtDate(client.onboarding_call_date) : 'Not yet'} />
       </div>
 
-      {expLoom && (
-        <div className="grid md:grid-cols-1 gap-4">
+      {/* Info cards (conditional) */}
+      {(client.reason || client.save_plan_analysis || client.action_needed) && (
+        <div className="space-y-2 mb-6">
+          {client.reason && <InfoCard label="Reason" text={client.reason} />}
+          {client.save_plan_analysis && <InfoCard label="Save Plan / Analysis" text={client.save_plan_analysis} />}
+          {client.action_needed && <InfoCard label="Action Needed" text={client.action_needed} />}
+        </div>
+      )}
+
+      {/* Lifecycle checklist */}
+      <div className="bg-ink-900 border border-ink-700 rounded-xl p-4 mb-6">
+        <LifecycleChecklist
+          clientId={client.id}
+          lifecycleSteps={client.lifecycle_steps}
+          onUpdate={updated => setClient(prev => ({ ...prev, lifecycle_steps: updated.lifecycle_steps }))}
+        />
+      </div>
+
+      {/* Timers */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
+        <TimerCard
+          label="Loom Timer"
+          timer={timers.loom}
+          actionLabel="Loom Sent"
+          onAction={() => doAction('loom_sent')}
+          onReset={() => doResetTimer('loom')}
+          disabled={saving}
+        />
+        <TimerCard
+          label="Call Offer Timer"
+          timer={timers.call_offer}
+          actionLabel="Call Offered"
+          onAction={() => doAction('call_offered')}
+          onReset={() => doResetTimer('call_offer')}
+          disabled={saving}
+        />
+      </div>
+
+      {/* Expectations Loom timer (if active) */}
+      {timers.expectations_loom && (
+        <div className="mb-6">
           <TimerCard
-            label="&#9200; Expectations Loom (72h deadline)"
-            timer={expLoom}
-            onReset={() => resetTimer('expectations_loom')}
-            onAction={() => doAction('expectations_loom_sent')}
+            label="Expectations Loom (72h deadline)"
+            timer={timers.expectations_loom}
             actionLabel="Expectations Loom Sent"
-            accent
+            onAction={() => doAction('expectations_loom_sent')}
+            disabled={saving}
           />
         </div>
       )}
 
-      <div className="card p-5">
-        <h3 className="font-semibold mb-2">Add a note</h3>
-        <textarea className="input h-24" placeholder="What happened?" value={note} onChange={e => setNote(e.target.value)} />
-        <div className="flex justify-between mt-3">
-          <button className="btn" onClick={() => doAction('call_completed')}>Log &quot;Call Completed&quot;</button>
-          <button className="btn btn-primary" onClick={saveNote} disabled={saving || !note.trim()}>
-            {saving ? 'Saving...' : 'Save note'}
-          </button>
+      {/* Notes + actions */}
+      <div className="bg-ink-900 border border-ink-700 rounded-xl p-4 mb-6">
+        <h3 className="text-sm font-semibold text-white mb-3">Add a Note</h3>
+        <textarea
+          value={note}
+          onChange={e => setNote(e.target.value)}
+          placeholder="Write a note..."
+          className="w-full bg-ink-800 border border-ink-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 resize-none h-20 focus:outline-none focus:border-blue-500 mb-2"
+        />
+        <div className="flex gap-2">
+          <button
+            onClick={addNote}
+            disabled={saving || !note.trim()}
+            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm rounded-lg"
+          >Save Note</button>
+          {!client.onboarding_call_completed && (
+            <button
+              onClick={() => doAction('call_completed')}
+              disabled={saving}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm rounded-lg"
+            >Log Call Completed</button>
+          )}
         </div>
       </div>
 
-      <div className="card p-5">
-        <h3 className="font-semibold mb-3">Touchpoint history</h3>
-        {client.touchpoints.length === 0 ? (
-          <div className="text-slate-400 text-sm">No touchpoints yet.</div>
-        ) : (
-          <ul className="divide-y divide-ink-700">
-            {client.touchpoints.map(tp => (
-              <li key={tp.id} className="py-3 flex gap-4">
-                <div className="text-xs text-slate-400 w-32 shrink-0">{fmtDate(tp.created_at)}</div>
-                <div className="flex-1">
-                  <div className="text-sm font-medium">{touchpointLabel(tp.type)}</div>
-                  {tp.content && <div className="text-sm text-slate-300 whitespace-pre-wrap">{tp.content}</div>}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+      {/* Touchpoint history */}
+      <div className="bg-ink-900 border border-ink-700 rounded-xl p-4">
+        <h3 className="text-sm font-semibold text-white mb-3">Activity History</h3>
+        {touchpoints.length === 0 && <p className="text-xs text-slate-500">No activity yet</p>}
+        <div className="space-y-2">
+          {touchpoints.map(tp => (
+            <div key={tp.id} className="flex items-start gap-3 text-sm">
+              <span className="text-xs text-slate-500 shrink-0 w-24">{fmtDateTime(tp.created_at)}</span>
+              <span className="text-xs font-medium text-slate-400 shrink-0 w-28">{formatType(tp.type)}</span>
+              <span className="text-slate-300 text-xs">{tp.content}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
-function Field({ label, value, placeholder, editable, onSave }) {
-  const [v, setV] = useState(value ?? '');
-  useEffect(() => { setV(value ?? ''); }, [value]);
+function FieldCard({ label, value }) {
   return (
-    <div>
-      <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">{label}</div>
-      {editable ? (
-        <input className="input" value={v} placeholder={placeholder}
-          onChange={e => setV(e.target.value)}
-          onBlur={() => v !== (value ?? '') && onSave?.(v)} />
-      ) : (
-        <div className="text-slate-200">{value || '-'}</div>
-      )}
+    <div className="bg-ink-900 border border-ink-700 rounded-lg p-3">
+      <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">{label}</p>
+      <p className="text-sm text-white">{value}</p>
     </div>
   );
 }
 
-function SelectField({ label, value, options, onChange }) {
+function InfoCard({ label, text }) {
   return (
-    <div>
-      <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">{label}</div>
-      <select
-        className="input"
-        value={value}
-        onChange={e => onChange(e.target.value)}
-      >
-        {options.map(opt => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
-        ))}
-      </select>
+    <div className="bg-ink-900 border border-ink-700 rounded-lg p-3">
+      <p className="text-[10px] text-slate-500 uppercase tracking-wide mb-1">{label}</p>
+      <p className="text-sm text-slate-300">{text}</p>
     </div>
   );
 }
 
-function Info({ label, value }) {
-  return (
-    <div className="rounded-lg bg-ink-900/60 border border-ink-700 p-3">
-      <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">{label}</div>
-      <div className="text-sm text-slate-200 whitespace-pre-wrap">{value}</div>
-    </div>
-  );
-}
+function TimerCard({ label, timer, actionLabel, onAction, onReset, disabled }) {
+  if (!timer) {
+    return (
+      <div className="bg-ink-900 border border-ink-700 rounded-lg p-4">
+        <p className="text-sm font-medium text-white mb-1">{label}</p>
+        <p className="text-xs text-slate-500">No timer set</p>
+      </div>
+    );
+  }
 
-function TimerCard({ label, timer, onReset, onAction, actionLabel, accent }) {
-  if (!timer) return <div className="card p-5">{label}: no timer</div>;
   const overdue = timer.is_overdue;
+  const rel = fmtRelative(timer.next_due_at);
+
   return (
-    <div className={`card p-5 ${overdue ? 'border-red-500/50' : accent ? 'border-violet-500/50' : ''}`}>
-      <div className="flex items-center justify-between">
-        <h3 className={`font-semibold ${accent ? 'text-violet-300' : ''}`}>{label}</h3>
-        <span className={`pill ${overdue ? 'bg-red-500/15 text-red-300' : accent ? 'bg-violet-500/10 text-violet-300' : 'bg-emerald-500/10 text-emerald-300'}`}>
-          {overdue ? 'OVERDUE' : 'On track'}
+    <div className={'bg-ink-900 border rounded-lg p-4 ' + (overdue ? 'border-red-500/50' : 'border-ink-700')}>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-sm font-medium text-white">{label}</p>
+        <span className={'text-xs px-2 py-0.5 rounded-full font-medium ' + (overdue ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400')}>
+          {overdue ? 'Overdue' : 'On track'}
         </span>
       </div>
-      <div className="mt-2 text-sm text-slate-300">
-        Next due: {fmtDate(timer.next_due_at)} ({fmtRelative(timer.next_due_at)})
-      </div>
-      <div className="mt-1 text-xs text-slate-400">Last reset: {fmtDate(timer.last_reset_at)}</div>
-      <div className="flex gap-2 mt-4">
-        <button className="btn btn-primary flex-1" onClick={onAction}>{actionLabel}</button>
-        <button className="btn" onClick={onReset}>Manual reset</button>
-      </div>
-    </div>
-  );
-}
-import { useEffect, useState, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { api } from '../lib/api.js';
-import StatusBadge from '../components/StatusBadge.jsx';
-import LifecycleChecklist from '../components/LifecycleChecklist.jsx';
-import { fmtDate, fmtRelative, touchpointLabel } from '../lib/format.js';
-import { getClientStage, PIPELINE_SECTIONS, countCompleted, TOTAL_STEPS } from '../lib/lifecycle.js';
-
-const RISK_HORIZON_OPTIONS = [
-  { value: '', label: '\u2014' },
-  { value: '0-30 days', label: '0\u201330 days', color: 'bg-red-500' },
-  { value: '31-60 days', label: '31\u201360 days', color: 'bg-orange-400' },
-  { value: '61-90 days', label: '61\u201390 days', color: 'bg-yellow-400' },
-  { value: '90+ days', label: '90+ days', color: 'bg-lime-400' },
-  { value: 'Unknown', label: 'Unknown', color: 'bg-slate-400' },
-];
-
-const BILLING_DATE_OPTIONS = [
-  { value: '', label: '\u2014' },
-  { value: '1', label: '1st' },
-  { value: '14', label: '14th' },
-];
-
-export default function ClientProfile() {
-  const { id } = useParams();
-  const [client, setClient] = useState(null);
-  const [note, setNote] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  const load = useCallback(async () => setClient(await api.getClient(id)), [id]);
-  useEffect(() => { load(); }, [load]);
-  if (!client) return <div className="text-slate-400">Loading...</div>;
-
-  const loom = client.timers?.loom;
-  const call = client.timers?.call_offer;
-  const expLoom = client.timers?.expectations_loom;
-
-  async function patch(fields) { await api.updateClient(id, fields); load(); }
-  async function doAction(type) { await api.action(id, type); load(); }
-  async function saveNote() {
-    if (!note.trim()) return;
-    setSaving(true);
-    await api.addNote(id, note.trim());
-    setNote(''); setSaving(false); load();
-  }
-  async function resetTimer(t) { await api.resetTimer(id, t); load(); }
-
-  return (
-    <div className="space-y-6">
-      <Link to="/pipeline" className="text-sm text-slate-400 hover:text-slate-200">\u2190 Back to pipeline</Link>
-
-      <div className="card p-6">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-semibold">{client.name}</h1>
-            <div className="text-sm text-slate-400 mt-1">
-              {client.company || '-'} {'\u00B7'} {client.email || 'no email on file'}
-            </div>
-          </div>
-          <StatusBadge status={client.status} onChange={s => patch({ status: s })} />
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 text-sm">
-          <Field label="Package" value={client.package ? `${client.package} reels` : '-'} editable onSave={v => patch({ package: v })} />
-          <SelectField
-            label="Billing date"
-            value={client.billing_date ? String(client.billing_date) : ''}
-            options={BILLING_DATE_OPTIONS}
-            onChange={v => patch({ billing_date: v ? Number(v) : null })}
-          />
-          <Field label="Content source" value={client.content_source ?? ''} editable onSave={v => patch({ content_source: v })} />
-          <Field label="MRR" value={client.mrr ?? ''} editable onSave={v => patch({ mrr: v ? Number(v) : null })} />
-          <Field label="Stripe status" value={client.stripe_status ?? ''} editable onSave={v => patch({ stripe_status: v })} />
-          <SelectField
-            label="Risk horizon"
-            value={client.risk_horizon ?? ''}
-            options={RISK_HORIZON_OPTIONS}
-            onChange={v => patch({ risk_horizon: v || null })}
-          />
-          <Field label="Date added" value={fmtDate(client.created_at)} />
-          <Field label="Onboarding call" value={client.onboarding_call_completed ? fmtDate(client.onboarding_call_date) : 'Not completed'} />
-        </div>
-
-        {(client.reason || client.save_plan_analysis || client.action_needed) && (
-          <div className="grid md:grid-cols-3 gap-3 mt-4 text-sm">
-            {client.reason && <Info label="Reason" value={client.reason} />}
-            {client.save_plan_analysis && <Info label="Save plan" value={client.save_plan_analysis} />}
-            {client.action_needed && <Info label="Action needed" value={client.action_needed} />}
-          </div>
-        )}
-      </div>
-
-      <LifecycleChecklist clientId={id} steps={client.lifecycle_steps} onChange={load} />
-
-      <div className="grid md:grid-cols-2 gap-4">
-        <TimerCard label="Loom timer" timer={loom} onReset={() => resetTimer('loom')} onAction={() => doAction('loom_sent')} actionLabel="Loom Sent" />
-        <TimerCard label="Call Offer timer" timer={call} onReset={() => resetTimer('call_offer')} onAction={() => doAction('call_offered')} actionLabel="Call Offered" />
-      </div>
-
-      {expLoom && (
-        <div className="grid md:grid-cols-1 gap-4">
-          <TimerCard
-            label="\u23F0 Expectations Loom (72h deadline)"
-            timer={expLoom}
-            onReset={() => resetTimer('expectations_loom')}
-            onAction={() => doAction('expectations_loom_sent')}
-            actionLabel="Expectations Loom Sent"
-            accent
-          />
-        </div>
-      )}
-
-      <div className="card p-5">
-        <h3 className="font-semibold mb-2">Add a note</h3>
-        <textarea className="input h-24" placeholder="What happened?" value={note} onChange={e => setNote(e.target.value)} />
-        <div className="flex justify-between mt-3">
-          <button className="btn" onClick={() => doAction('call_completed')}>Log &quot;Call Completed&quot;</button>
-          <button className="btn btn-primary" onClick={saveNote} disabled={saving || !note.trim()}>
-            {saving ? 'Saving...' : 'Save note'}
-          </button>
-        </div>
-      </div>
-
-      <div className="card p-5">
-        <h3 className="font-semibold mb-3">Touchpoint history</h3>
-        {client.touchpoints.length === 0 ? (
-          <div className="text-slate-400 text-sm">No touchpoints yet.</div>
-        ) : (
-          <ul className="divide-y divide-ink-700">
-            {client.touchpoints.map(tp => (
-              <li key={tp.id} className="py-3 flex gap-4">
-                <div className="text-xs text-slate-400 w-32 shrink-0">{fmtDate(tp.created_at)}</div>
-                <div className="flex-1">
-                  <div className="text-sm font-medium">{touchpointLabel(tp.type)}</div>
-                  {tp.content && <div className="text-sm text-slate-300 whitespace-pre-wrap">{tp.content}</div>}
-                </div>
-              </li>
-            ))}
-          </ul>
+      <p className="text-xs text-slate-400 mb-1">Due: {fmtDate(timer.next_due_at)}</p>
+      <p className={'text-sm font-medium mb-3 ' + (overdue ? 'text-red-400' : 'text-slate-300')}>{rel}</p>
+      <div className="flex gap-2">
+        <button
+          onClick={onAction}
+          disabled={disabled}
+          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs rounded-lg"
+        >{actionLabel}</button>
+        {onReset && (
+          <button
+            onClick={onReset}
+            disabled={disabled}
+            className="px-3 py-1.5 bg-ink-800 hover:bg-ink-700 border border-ink-700 text-slate-300 text-xs rounded-lg"
+          >Reset</button>
         )}
       </div>
     </div>
   );
 }
 
-function Field({ label, value, placeholder, editable, onSave }) {
-  const [v, setV] = useState(value ?? '');
-  useEffect(() => { setV(value ?? ''); }, [value]);
-  return (
-    <div>
-      <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">{label}</div>
-      {editable ? (
-        <input className="input" value={v} placeholder={placeholder}
-          onChange={e => setV(e.target.value)}
-          onBlur={() => v !== (value ?? '') && onSave?.(v)} />
-      ) : (
-        <div className="text-slate-200">{value || '-'}</div>
-      )}
-    </div>
-  );
-}
-
-function SelectField({ label, value, options, onChange }) {
-  return (
-    <div>
-      <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">{label}</div>
-      <select
-        className="input"
-        value={value}
-        onChange={e => onChange(e.target.value)}
-      >
-        {options.map(opt => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-function Info({ label, value }) {
-  return (
-    <div className="rounded-lg bg-ink-900/60 border border-ink-700 p-3">
-      <div className="text-xs uppercase tracking-wide text-slate-500 mb-1">{label}</div>
-      <div className="text-sm text-slate-200 whitespace-pre-wrap">{value}</div>
-    </div>
-  );
-}
-
-function TimerCard({ label, timer, onReset, onAction, actionLabel, accent }) {
-  if (!timer) return <div className="card p-5">{label}: no timer</div>;
-  const overdue = timer.is_overdue;
-  return (
-    <div className={`card p-5 ${overdue ? 'border-red-500/50' : accent ? 'border-violet-500/50' : ''}`}>
-      <div className="flex items-center justify-between">
-        <h3 className={`font-semibold ${accent ? 'text-violet-300' : ''}`}>{label}</h3>
-        <span className={`pill ${overdue ? 'bg-red-500/15 text-red-300' : accent ? 'bg-violet-500/10 text-violet-300' : 'bg-emerald-500/10 text-emerald-300'}`}>
-          {overdue ? 'OVERDUE' : 'On track'}
-        </span>
-      </div>
-      <div className="mt-2 text-sm text-slate-300">
-        Next due: {fmtDate(timer.next_due_at)} ({fmtRelative(timer.next_due_at)})
-      </div>
-      <div className="mt-1 text-xs text-slate-400">Last reset: {fmtDate(timer.last_reset_at)}</div>
-      <div className="flex gap-2 mt-4">
-        <button className="btn btn-primary flex-1" onClick={onAction}>{actionLabel}</button>
-        <button className="btn" onClick={onReset}>Manual reset</button>
-      </div>
-    </div>
-  );
+function formatType(type) {
+  const map = {
+    loom_sent: 'Loom Sent',
+    call_offered: 'Call Offered',
+    call_completed: 'Call Done',
+    expectations_loom_sent: 'Exp. Loom',
+    note: 'Note',
+    status_change: 'Status',
+    system: 'System',
+  };
+  return map[type] || type;
 }
