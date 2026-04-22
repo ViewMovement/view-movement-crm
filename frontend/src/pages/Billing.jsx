@@ -1,39 +1,63 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../lib/api.js';
-import { useToast } from '../lib/toast.jsx';
-import ClientDetailDrawer from '../components/ClientDetailDrawer.jsx';
-import { SectionHeader, Skeleton, StatusDot, Empty, TabIntro } from '../components/primitives.jsx';
+
+const STATUS_COLORS = { green: 'bg-emerald-400', yellow: 'bg-yellow-400', red: 'bg-red-400', churned: 'bg-slate-500' };
 
 export default function Billing() {
-  const [state, setState] = useState(null);
-  const [openId, setOpenId] = useState(null);
-  const { show } = useToast();
+  const [clients, setClients] = useState(null);
+  const [tab, setTab] = useState('1');
 
-  async function load() { setState(await api.billingToday()); }
-  useEffect(() => { load(); }, []);
+  useEffect(() => { api.listClients().then(setClients); }, []);
 
-  async function mark(client_id, period_date, status, note) {
-    await api.billingCheck({ client_id, period_date, status, note });
-    load();
-    show({ message: `Marked ${status}.` });
-  }
+  const grouped = useMemo(() => {
+    if (!clients) return { '1': [], '14': [], unset: [] };
+    const g = { '1': [], '14': [], unset: [] };
+    for (const c of clients) {
+      if (c.status === 'churned') continue;
+      if (c.billing_date === 1) g['1'].push(c);
+      else if (c.billing_date === 14) g['14'].push(c);
+      else g.unset.push(c);
+    }
+    return g;
+  }, [clients]);
 
-  if (!state) return <div className="space-y-3"><Skeleton rows={6} className="h-14 w-full" /></div>;
-  const { rows, counts, billing_day, period_date, is_check_day } = state;
+  if (!clients) return <div className="text-slate-400">Loading...</div>;
+
+  const today = new Date().getDate();
+  const isCheckDay = today === 1 || today === 14;
+  const rows = tab === 'unset' ? grouped.unset : grouped[tab] || [];
 
   return (
-    <>
-      <TabIntro id="billing" title="What is this?">
-        The billing-day check. Clients bill on the <b>1st</b> or the <b>14th</b> — on those days this tab auto-rolls to today's cohort. Work down the list in Stripe and mark each one <span className="text-emerald-300">Verified</span>, <span className="text-rose-300">Failed</span>, or leave Pending. Failed ones auto-flag into Triage. Off-cycle days show the upcoming roster as a preview.
-      </TabIntro>
-      <SectionHeader
-        title={`Billing · ${billing_day}${suffix(billing_day)}`}
-        subtitle={is_check_day
-          ? `Check day. ${counts.pending} pending · ${counts.ok} verified · ${counts.failed} failed`
-          : `Not a check day. Upcoming ${billing_day}${suffix(billing_day)} roster.`} />
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold">Billing</h2>
+        <p className="text-sm text-slate-400 mt-1">
+          {isCheckDay
+            ? `Today is a billing day (the ${today}${suffix(today)}). Check Stripe for each client below.`
+            : `Upcoming billing roster. Next check day: the ${today <= 1 ? '1st' : today <= 14 ? '14th' : '1st'}.`}
+        </p>
+      </div>
+
+      <div className="flex gap-2">
+        <button onClick={() => setTab('1')}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === '1' ? 'bg-ink-700 text-white' : 'text-slate-400 hover:text-slate-200 hover:bg-ink-800'}`}>
+          1st ({grouped['1'].length})
+        </button>
+        <button onClick={() => setTab('14')}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === '14' ? 'bg-ink-700 text-white' : 'text-slate-400 hover:text-slate-200 hover:bg-ink-800'}`}>
+          14th ({grouped['14'].length})
+        </button>
+        {grouped.unset.length > 0 && (
+          <button onClick={() => setTab('unset')}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === 'unset' ? 'bg-ink-700 text-white' : 'text-slate-400 hover:text-slate-200 hover:bg-ink-800'}`}>
+            No date ({grouped.unset.length})
+          </button>
+        )}
+      </div>
 
       {rows.length === 0 ? (
-        <Empty icon="○" title="No clients on this billing day." />
+        <div className="card p-8 text-center text-slate-400">No clients billing on this date.</div>
       ) : (
         <div className="rounded-lg border border-ink-700 overflow-hidden">
           <table className="w-full text-sm">
@@ -43,50 +67,39 @@ export default function Billing() {
                 <th className="px-4 py-2">Package</th>
                 <th className="px-4 py-2">MRR</th>
                 <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2 text-right">Actions</th>
+                <th className="px-4 py-2">Stripe</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map(r => (
-                <tr key={r.client.id} className="border-t border-ink-800 hover:bg-ink-900/40">
+              {rows.map(c => (
+                <tr key={c.id} className="border-t border-ink-800 hover:bg-ink-900/40">
                   <td className="px-4 py-2">
-                    <button onClick={() => setOpenId(r.client.id)} className="flex items-center gap-2 hover:underline">
-                      <StatusDot status={r.client.status} label={false} />
-                      <span className="font-medium">{r.client.name}</span>
-                    </button>
+                    <Link to={`/clients/${c.id}`} className="flex items-center gap-2 hover:underline">
+                      <span className={`w-2 h-2 rounded-full ${STATUS_COLORS[c.status] || 'bg-slate-500'}`} />
+                      <span className="font-medium">{c.name}</span>
+                    </Link>
                   </td>
-                  <td className="px-4 py-2 text-slate-400 tabular-nums">{r.client.package || '—'}</td>
-                  <td className="px-4 py-2 text-slate-400 tabular-nums">{r.client.mrr ? `$${r.client.mrr}` : '—'}</td>
+                  <td className="px-4 py-2 text-slate-400 tabular-nums">{c.package ? `${c.package} reels` : '\u2014'}</td>
+                  <td className="px-4 py-2 text-slate-400 tabular-nums">{c.mrr ? `$${c.mrr}` : '\u2014'}</td>
                   <td className="px-4 py-2">
-                    <StatusPill status={r.check?.status || 'pending'} />
+                    <span className={`pill ${
+                      c.status === 'green' ? 'bg-emerald-500/15 text-emerald-300' :
+                      c.status === 'yellow' ? 'bg-yellow-500/15 text-yellow-300' :
+                      c.status === 'red' ? 'bg-red-500/15 text-red-300' :
+                      'bg-slate-500/15 text-slate-300'
+                    }`}>
+                      {c.status === 'green' ? 'Healthy' : c.status === 'yellow' ? 'Watch' : c.status === 'red' ? 'At Risk' : c.status}
+                    </span>
                   </td>
-                  <td className="px-4 py-2">
-                    <div className="flex items-center gap-2 justify-end">
-                      <button className="btn btn-sm" onClick={() => mark(r.client.id, period_date, 'ok')}>OK</button>
-                      <button className="btn btn-sm text-rose-300 border-rose-500/40" onClick={() => mark(r.client.id, period_date, 'failed')}>Failed</button>
-                      <button className="btn btn-sm text-slate-400" onClick={() => mark(r.client.id, period_date, 'skipped')}>Skip</button>
-                    </div>
-                  </td>
+                  <td className="px-4 py-2 text-slate-400">{c.stripe_status || '\u2014'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-
-      {openId && <ClientDetailDrawer clientId={openId} onClose={() => setOpenId(null)} />}
-    </>
+    </div>
   );
-}
-
-function StatusPill({ status }) {
-  const meta = {
-    pending: ['bg-ink-700 text-slate-300', 'Pending'],
-    ok:      ['bg-emerald-500/15 text-emerald-300', 'Verified'],
-    failed:  ['bg-rose-500/15 text-rose-300', 'Failed'],
-    skipped: ['bg-ink-800 text-slate-500', 'Skipped']
-  }[status] || ['bg-ink-700 text-slate-400', status];
-  return <span className={`pill ${meta[0]}`}>{meta[1]}</span>;
 }
 
 function suffix(n) { return n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'; }
