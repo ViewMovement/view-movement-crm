@@ -2,97 +2,106 @@
 import { supabase } from './supabase.js';
 import { computeNextDue, addHours, EXPECTATIONS_LOOM_HOURS } from './cadence.js';
 
-export async function createClient(fields) {
-  const { data: client, error } = await supabase
+export async function createNewClient(fields) {
+  const { data, error } = await supabase
     .from('clients')
-    .insert([fields])
+    .insert(fields)
     .select()
     .single();
   if (error) throw error;
-
-  const now = new Date();
-  const ssd = client.service_start_date || client.created_at;
-  const loomDue = computeNextDue(now, client.status, 'loom', ssd);
-  const callDue = computeNextDue(now, client.status, 'call_offer');
-
-  const { error: tErr } = await supabase.from('timers').insert([
-    { client_id: client.id, timer_type: 'loom',       last_reset_at: now.toISOString(), next_due_at: loomDue.toISOString() },
-    { client_id: client.id, timer_type: 'call_offer', last_reset_at: now.toISOString(), next_due_at: callDue.toISOString() }
-  ]);
-  if (tErr) throw tErr;
-
-  await supabase.from('touchpoints').insert([{
-    client_id: client.id,
-    type: 'system',
-    content: 'Client record created'
-  }]);
-
-  return client;
+  return data;
 }
 
-export async function logTouchpoint(clientId, type, content = null) {
+export async function logTouchpoint(clientId, type, content) {
   const { error } = await supabase
     .from('touchpoints')
-    .insert([{ client_id: clientId, type, content }]);
+    .insert({ client_id: clientId, type, content });
   if (error) throw error;
 }
 
-export async function resetTimer(clientId, timerType) {
-  const { data: client, error: cErr } = await supabase
-    .from('clients').select('status, service_start_date, created_at').eq('id', clientId).single();
-  if (cErr) throw cErr;
-
-  const now = new Date();
-  const ssd = client.service_start_date || client.created_at;
-  const nextDue = computeNextDue(now, client.status, timerType, ssd);
+export async function resetTimer(clientId, timerType, status) {
+  const now = new Date().toISOString();
+  const nextDue = computeNextDue(now, status);
   const { error } = await supabase
     .from('timers')
-    .update({
-      last_reset_at: now.toISOString(),
-      next_due_at: nextDue.toISOString(),
-      is_overdue: false
-    })
-    .eq('client_id', clientId)
-    .eq('timer_type', timerType);
+    .upsert({
+      client_id: clientId,
+      timer_type: timerType,
+      last_reset_at: now,
+      next_due_at: nextDue,
+      is_overdue: false,
+    }, { onConflict: 'client_id,timer_type' });
   if (error) throw error;
 }
 
-// When a client's status changes, recalc both timers' next_due_at from last_reset_at using new interval.
+export async function initTimers(clientId, status) {
+  const now = new Date().toISOString();
+  const nextDue = computeNextDue(now, status);
+  const rows = ['loom', 'call_offer'].map(t => ({
+    client_id: clientId,
+    timer_type: t,
+    last_reset_at: now,
+    next_due_at: nextDue,
+    is_overdue: false,
+  }));
+  const { error } = await supabase
+    .from('timers')
+    .upsert(rows, { onConflict: 'client_id,timer_type' });
+  if (error) throw error;
+}
+
 export async function recalcTimersForStatusChange(clientId, newStatus) {
-  const { data: client, error: cErr } = await supabase
-    .from('clients').select('service_start_date, created_at').eq('id', clientId).single();
-  const ssd = client?.service_start_date || client?.created_at || null;
+  const { data: timers } = await supabase
+    .from('timers')
+    .select('*')
+    .eq('client_id', clientId)
+    .in('timer_type', ['loom', 'call_offer']);
 
-  const { data: timers, error } = await supabase
-    .from('timers').select('*').eq('client_id', clientId);
-  if (error) throw error;
-  const updates = timers.map(t => {
-    const nextDue = computeNextDue(t.last_reset_at, newStatus, t.timer_type, ssd);
-    return supabase.from('timers').update({
-      next_due_at: nextDue.toISOString(),
-      is_overdue: new Date(nextDue) <= new Date()
-    }).eq('id', t.id);
-  });
-  await Promise.all(updates);
-}
-
-export async function refreshOverdueFlags() {
-  const nowIso = new Date().toISOString();
-  await supabase.from('timers').update({ is_overdue: true }).lte('next_due_at', nowIso);
-  await supabase.from('timers').update({ is_overdue: false }).gt('next_due_at', nowIso);
+  for (const timer of timers || []) {
+    const nextDue = computeNextDue(timer.last_reset_at, newStatus);
+    await supabase
+      .from('timers')
+      .update({ next_due_at: nextDue, is_overdue: new Date(nextDue) <= new Date() })
+      .eq('id', timer.id);
+  }
 }
 
 export async function createExpectationsLoomTimer(clientId) {
-    const now = new Date();
-    const dueAt = addHours(now, EXPECTATIONS_LOOM_HOURS);
-    const { error } = await supabase.from('timers').upsert({
-          client_id: clientId, timer_type: 'expectations_loom',
-          last_reset_at: now.toISOString(), next_due_at: dueAt.toISOString(), is_overdue: false
+  const now = new Date().toISOString();
+  const nextDue = addHours(now, EXPECTATIONS_LOOM_HOURS);
+  const { error } = await supabase
+    .from('timers')
+    .upsert({
+      client_id: clientId,
+      timer_type: 'expectations_loom',
+      last_reset_at: now,
+      next_due_at: nextDue,
+      is_overdue: false,
     }, { onConflict: 'client_id,timer_type' });
-    if (error) throw error;
+  if (error) throw error;
 }
 
 export async function clearExpectationsLoomTimer(clientId) {
-    await supabase.from('timers').delete()
-      .eq('client_id', clientId).eq('timer_type', 'expectations_loom');
+  await supabase
+    .from('timers')
+    .delete()
+    .eq('client_id', clientId)
+    .eq('timer_type', 'expectations_loom');
+}
+
+export async function refreshOverdueFlags() {
+  const now = new Date().toISOString();
+  await supabase
+    .from('timers')
+    .update({ is_overdue: true })
+    .lte('next_due_at', now)
+    .eq('is_overdue', false);
+}
+
+export async function logSyncAttempt(source, token, action, payload) {
+  const { error } = await supabase
+    .from('sync_log')
+    .insert({ source, token, action, payload });
+  // Ignore unique-constraint violations (already logged)
+  if (error && !error.message.includes('duplicate')) throw error;
 }
