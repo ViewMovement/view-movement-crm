@@ -737,7 +737,7 @@ function LoomCard({ client, loomCadence, looms, onSendLoom, onSnooze, onCadenceC
     <div className={`rounded-lg border p-4 ${overdue ? 'border-rose-500/40 bg-rose-500/5' : 'border-violet-500/30 bg-violet-500/5'}`}>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className="text-base">\u{1F3A5}</span>
+          <span className="text-base">🎥</span>
           <span className="text-sm font-semibold text-slate-200">Loom</span>
         </div>
         <span className={`pill text-[10px] ${overdue ? 'bg-rose-500/15 text-rose-300' : 'bg-violet-500/15 text-violet-300'}`}>
