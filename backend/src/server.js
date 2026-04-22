@@ -4,6 +4,112 @@ import morgan from 'morgan';
 import 'dotenv/config';
 
 import clientsRouter from './routes/clients.js';
+import { requireAuth } from './lib/auth.js';
+import { readSheet, rowsToObjects } from './lib/sheets.js';
+import { supabase } from './lib/supabase.js';
+import { startOnboardingPoller } from './jobs/onboardingSync.js';
+import { startCancellationPoller } from './jobs/cancellationSync.js';
+
+const app = express();
+app.use(cors({ origin: process.env.FRONTEND_ORIGIN || true }));
+app.use(express.json({ limit: '1mb' }));
+app.use(morgan('tiny'));
+
+app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
+
+app.use('/api/clients', requireAuth, clientsRouter);
+
+// Admin: preview a Google Sheet (first 3 rows)
+app.get('/admin/sheet-preview', async (req, res) => {
+  try {
+    const sheetId = req.query.id;
+    const range = req.query.range || 'Sheet1!A1:ZZ3';
+    if (!sheetId) return res.status(400).json({ error: 'id query param required' });
+    const rows = await readSheet(sheetId, range);
+    res.json({ rowCount: rows.length, headers: rows[0] || [], sample: rows.slice(1, 3) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: sync from churn sheet — wipe + reimport
+app.post('/admin/sync-churn-sheet', async (req, res) => {
+  try {
+    const CHURN_SHEET_ID = process.env.CHURN_SHEET_ID || '1hlqWOrVuJFgjuEaCZSMYyXT2MxgB3oxRsNeSnoL5jJQ';
+    const CHURN_RANGE = process.env.CHURN_SHEET_RANGE || 'Sheet1!A1:ZZ';
+    const rows = await readSheet(CHURN_SHEET_ID, CHURN_RANGE);
+    const records = rowsToObjects(rows);
+
+    // Wipe existing clients, timers, touchpoints, sync_log
+    await supabase.from('timers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    await supabase.from('touchpoints').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    await supabase.from('loom_entries').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    await supabase.from('save_plans').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    await supabase.from('retention_flags').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    await supabase.from('sync_log').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    await supabase.from('clients').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+    let created = 0, skipped = 0;
+    for (const row of records) {
+      // Try to find name from common column patterns
+      const name = row['Client Name'] || row['Name'] || row['client_name'] || row['Company'] || row['company'] || '';
+      if (!name || !name.trim()) { skipped++; continue; }
+
+      const email = row['Email'] || row['email'] || row['Client Email'] || null;
+      const company = row['Company'] || row['company'] || row['Brand'] || row['brand'] || null;
+      const pkg = row['Package'] || row['package'] || row['Plan'] || row['Reels'] || row['Amount of reels purchased'] || null;
+      const status = (row['Status'] || row['status'] || 'green').toLowerCase().trim();
+      const billingDate = row['Billing Date'] || row['billing_date'] || row['Next Billing'] || null;
+      const billingAmount = row['Monthly Rate'] || row['Billing Amount'] || row['billing_amount'] || row['MRR'] || null;
+
+      // Map status values
+      let mappedStatus = 'green';
+      if (['churned', 'cancelled', 'canceled'].includes(status)) mappedStatus = 'churned';
+      else if (['red', 'at risk', 'at-risk'].includes(status)) mappedStatus = 'red';
+      else if (['yellow', 'warning'].includes(status)) mappedStatus = 'yellow';
+      else mappedStatus = 'green';
+
+      const payload = {
+        name: name.trim(),
+        email: email?.trim() || null,
+        company: company?.trim() || null,
+        package: pkg?.trim?.() || pkg || null,
+        status: mappedStatus,
+        billing_date: billingDate || null,
+        billing_amount: billingAmount ? parseFloat(String(billingAmount).replace(/[^0-9.]/g, '')) || null : null,
+        onboarding_flag: false
+      };
+
+      try {
+        const { error } = await supabase.from('clients').insert([payload]);
+        if (error) throw error;
+        created++;
+      } catch (err) {
+        console.error('[churn-sync] insert error:', err.message, { name });
+        skipped++;
+      }
+    }
+
+    res.json({ ok: true, totalRows: records.length, created, skipped, headers: rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const port = process.env.PORT || 8080;
+app.listen(port, () => {
+  console.log(`[crm-backend] listening on :${port}`);
+  if (process.env.ENABLE_POLLERS !== 'false') {
+    startOnboardingPoller();
+    startCancellationPoller();
+  }
+});
+import express from 'express';
+import cors from 'cors';
+import morgan from 'morgan';
+import 'dotenv/config';
+
+import clientsRouter from './routes/clients.js';
 import activityRouter from './routes/activity.js';
 import syncRouter from './routes/sync.js';
 import opsRouter from './routes/ops.js';
